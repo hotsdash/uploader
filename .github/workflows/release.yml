@@ -1,0 +1,99 @@
+name: Release
+
+# Run by hand (Actions > Release > Run workflow). The version is the time it runs, in UTC (2026.11.25.1430): a bigger
+# one is newer, which is how installed copies and the dashboard tell. Publishing a release doesn't update anyone by
+# itself: the dashboard decides which release is "latest" for installed copies (it reads latest.json from here).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # to create the release
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check the signing key is there
+        env:
+          UPLOADER_SIGNING_KEY: ${{ secrets.UPLOADER_SIGNING_KEY }}
+        run: |
+          if [ -z "$UPLOADER_SIGNING_KEY" ]; then
+            echo "::error::The UPLOADER_SIGNING_KEY secret is missing: a release has to be signed, or installed copies would refuse it."
+            exit 1
+          fi
+          # the key goes in a file only this job can read; the scripts take the file's path
+          umask 077
+          printf '%s' "$UPLOADER_SIGNING_KEY" > "$RUNNER_TEMP/uploader-signing.key"
+          echo "UPLOADER_SIGNING_KEY=$RUNNER_TEMP/uploader-signing.key" >> "$GITHUB_ENV"
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Work out the version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(date -u +%Y.%m.%d.%H%M)
+          if gh release view "v$v" >/dev/null 2>&1; then
+            echo "::error::v$v already exists: run again in a minute."
+            exit 1
+          fi
+          # must be newer than the newest release (a clock that went backwards would make copies ignore it)
+          prev=$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName // ""' | sed 's/^v//')
+          if [ -n "$prev" ] && ! [ "$v" \> "$prev" ]; then
+            echo "::error::$v isn't newer than the last release ($prev)."
+            exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "Releasing $v (after ${prev:-nothing})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build all platforms
+        # -trimpath builds of Windows, linux-amd64, linux-arm64 and the universal macOS program (tools/lipo), with the
+        # public half of the signing key built in. Signing is the next-but-one step.
+        run: SKIP_SIGN=1 scripts/build.sh
+
+      # ---------------------------------------------------------------------------------------------------------
+      # LATER: Windows Authenticode signing (SmartScreen / antivirus reputation). Not set up yet: when it is, it goes
+      # HERE, after the build and BEFORE the Ed25519 signing below, because the Ed25519 signature covers the program's
+      # sha256 and signing the .exe changes its bytes. Sketch (needs a certificate or a cloud signing service):
+      #
+      # - name: Sign the Windows program (Authenticode)
+      #   run: |
+      #     # e.g. osslsigncode, or Azure Trusted Signing / a hardware-backed key via the vendor's action
+      #     osslsigncode sign -certs "$CERT_FILE" -key "$KEY_FILE" -h sha256 \
+      #       -t http://timestamp.digicert.com -in dist/hots-dash-uploader.exe -out dist/signed.exe
+      #     mv dist/signed.exe dist/hots-dash-uploader.exe
+      # ---------------------------------------------------------------------------------------------------------
+
+      - name: Sign the programs (Ed25519, the update signature)
+        run: scripts/sign.sh
+
+      - name: Make the first-download archives and latest.json
+        run: scripts/package.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "Uploader $VERSION" --latest \
+            --notes "Replay uploader $VERSION. Installed copies update through the dashboard; \`latest.json\` lists every file with its size, sha256 and Ed25519 signature." \
+            hots-dash-uploader.exe \
+            hots-dash-uploader-linux-amd64 hots-dash-uploader-linux-amd64.tar.gz \
+            hots-dash-uploader-linux-arm64 hots-dash-uploader-linux-arm64.tar.gz \
+            hots-dash-uploader-macos hots-dash-uploader-macos.tar.gz \
+            latest.json
+
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/uploader-signing.key"

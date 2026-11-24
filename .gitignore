@@ -1,0 +1,5 @@
+dist/
+*.key
+*.pem
+.env*
+go.work

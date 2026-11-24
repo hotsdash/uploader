@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test ./...
+
+  build:
+    # every platform builds (cross-compiled from Linux), with the flags a release uses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+      - name: vet for the other systems
+        run: |
+          GOOS=windows go vet ./...
+          GOOS=darwin go vet ./...
+      - name: build all platforms (unsigned)
+        run: scripts/build.sh
+      - name: the archives and latest.json come out (unsigned)
+        run: UNSIGNED=1 scripts/package.sh && cat dist/latest.json

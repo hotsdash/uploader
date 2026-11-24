@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hots-dash uploader</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #12131c; --panel: #1b1d29; --panel-2: #232637; --line: #2c3043; --line-strong: #3a3f56;
+    --ink: #e9eaf2; --ink-2: #b4b7c9; --ink-3: #8a8ea6; --accent: #9085e9; --accent-ink: #12131c;
+    --good: #4cc38a; --bad: #ef6b6b; --warn: #e3a64a; --radius: 8px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --page: #eef0f5; --panel: #ffffff; --panel-2: #f5f6fa; --line: #dfe2ea; --line-strong: #c6cad6;
+      --ink: #1a1c26; --ink-2: #4e5164; --ink-3: #6e7185; --accent: #6250d6; --accent-ink: #ffffff;
+      --good: #1a7f4b; --bad: #c43434; --warn: #9a5f00;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 var(--font); }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 20px 60px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  header svg { width: 30px; height: 30px; flex: none; }
+  h1 { font-size: 1.5rem; margin: 0; font-weight: 650; }
+  h2 { font-size: 1.1rem; margin: 0 0 4px; font-weight: 650; }
+  .sub { color: var(--ink-2); margin: 0; }
+  .muted { color: var(--ink-3); }
+  .small { font-size: .87rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px; }
+  .head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good); flex: none; }
+  .dot.bad { background: var(--bad); }
+  .dot.busy { background: var(--accent); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .big { font-size: 1.15rem; font-weight: 600; }
+  button, .btn { font: inherit; cursor: pointer; border-radius: var(--radius); border: 1px solid var(--line-strong); background: transparent; color: var(--ink); padding: 6px 12px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button.link { border: 0; padding: 0; color: var(--ink-3); background: none; }
+  button.link:hover { color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 8px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  th { color: var(--ink-3); font-weight: 500; font-size: .87rem; }
+  td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .path { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; word-break: break-all; }
+  .off .path { color: var(--ink-3); text-decoration: line-through; }
+  input[type=text] { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 10px; flex: 1; min-width: 220px; }
+  .switch { position: relative; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+  .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .switch .track { width: 38px; height: 22px; border-radius: 11px; background: var(--line-strong); position: relative; transition: background .15s; flex: none; }
+  .switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::after { left: 19px; }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pill { display: inline-block; font-size: .78rem; padding: 1px 8px; border-radius: 10px; background: var(--panel-2); color: var(--ink-2); border: 1px solid var(--line); }
+  .pill.good { color: var(--good); }
+  .err { color: var(--bad); }
+  .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; min-width: 80px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  ul.recent { list-style: none; margin: 0; padding: 0; }
+  ul.recent li { padding: 5px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; }
+  ul.recent time { color: var(--ink-3); font-variant-numeric: tabular-nums; flex: none; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .warn { border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); padding: 10px 12px; border-radius: 0 var(--radius) var(--radius) 0; margin: 10px 0; }
+  .warn b { color: var(--warn); }
+  .pill.warn-pill { color: var(--warn); }
+  .ok-note { color: var(--good); }
+  td .sub-path { display: block; margin-top: 2px; }
+  #rejoinAccounts .toon { display: block; margin-top: 2px; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; font-size: .8rem; }
+  #rejoinAccounts .pill { white-space: nowrap; }
+  @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2 29 9.5v13L16 30 3 22.5v-13z" fill="var(--accent)"/><path d="M16 8 23 12v8l-7 4-7-4v-8z" fill="var(--panel)"/><path d="M16 12.5 19 14.25v3.5L16 19.5l-3-1.75v-3.5z" fill="var(--accent)"/></svg>
+    <div style="flex:1;min-width:200px">
+      <h1>hots-dash uploader</h1>
+      <p class="sub small" id="who"></p>
+    </div>
+    <div class="row">
+      <button class="primary" id="sync">Upload new replays now</button>
+      <button id="dash">Open dashboard</button>
+    </div>
+  </header>
+
+  <div class="warn" id="moveWarn" role="alert" style="display:none"></div>
+  <div class="warn small" id="httpWarn" role="status" style="display:none"><b>This dashboard's address is plain http.</b> Your sign-in and replays are sent unencrypted, and the uploader won't update itself from it. Ask the dashboard's owner for an https address.</div>
+
+  <section class="panel" aria-live="polite">
+    <div class="status"><span class="dot" id="dot"></span><span class="big" id="statusText">Starting…</span></div>
+    <p class="small muted" id="statusMore" style="margin:6px 0 0"></p>
+    <div class="row small" style="margin-top:10px;gap:16px">
+      <span><b id="nReplays">–</b> replays found</span>
+      <span><b id="nSent">–</b> on the dashboard</span>
+      <div class="bar" style="flex:1;max-width:260px" aria-hidden="true"><i id="sentBar" style="width:0"></i></div>
+    </div>
+  </section>
+
+  <section class="panel" id="account">
+    <div class="head">
+      <div><h2>Your dashboard account</h2><p class="small muted" style="margin:0" id="acctText"></p></div>
+      <div class="row" id="acctButtons"></div>
+    </div>
+    <div id="acctPending" style="display:none">
+      <p style="margin:6px 0">Approve this code in the browser window that just opened: <b id="acctCode" style="font-size:1.25rem;letter-spacing:.08em"></b></p>
+      <p class="small muted" style="margin:0">Waiting for you to approve… <button class="link" id="acctReopen">Open the page again</button> · <button class="link" id="acctCancel">Cancel</button></p>
+    </div>
+    <p class="small err" id="acctErr" role="alert" style="margin:6px 0 0"></p>
+  </section>
+
+  <section class="panel">
+    <div class="head">
+      <div><h2>Replay folders</h2><p class="small muted" style="margin:0">Every folder here is watched for finished replays: the game's own folder for each Battle.net account, and any backups. A replay that's in more than one folder is only sent once. Live hero picks use their own folders, below.</p></div>
+    </div>
+    <table><thead><tr><th>Folder</th><th class="r">Replays</th><th class="r">Sent</th><th>Use</th><th></th></tr></thead><tbody id="folders"></tbody></table>
+    <div id="suggest" class="small" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="pick">Add a folder…</button>
+      <input type="text" id="pathIn" placeholder="or paste a folder path, e.g. D:\Backups\HotS Replays" aria-label="Folder path">
+      <button id="addPath">Add</button>
+    </div>
+    <p class="small err" id="folderErr" role="alert" style="margin:6px 0 0"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Battle.net accounts found</h2>
+    <p class="small muted" style="margin:0 0 8px" id="accountsHelp">From the account folders the game keeps replays in. Signed in, replays you upload from an account's folder link that account to you on the dashboard (unless you've said it isn't yours).</p>
+    <table><thead><tr><th>Account</th><th>Region</th><th class="r">Replays</th><th>On the dashboard</th></tr></thead><tbody id="accounts"></tbody></table>
+  </section>
+
+  <section class="panel" id="liveFolders">
+    <div class="head">
+      <div><h2>Live game folders</h2>
+        <p class="small muted" style="margin:0">Separate from the replay folders above. While a game is on, Heroes writes a <b>rejoin save</b> for the account you're playing on, so you can reconnect if you drop. That save says which hero everyone picked, and it's the only place the uploader can read picks from before the game ends.</p>
+      </div>
+    </div>
+    <div class="warn small" id="rejoinWarn" role="status" style="display:none"></div>
+    <table><thead><tr><th>Account</th><th>Rejoin folder</th><th>Status</th><th></th></tr></thead><tbody id="rejoinAccounts"></tbody></table>
+    <div id="rejoinOthers"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="rejoinAll" style="display:none">Use the game's folder for every account</button>
+      <button id="rejoinPick">Add another folder…</button>
+    </div>
+    <p class="small err" id="rejoinErr" role="alert" style="margin:6px 0 0"></p>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Live game check</h2>
+      <p class="small muted">When a game is loading, the uploader reads who's in it and tells you (with <span id="sysNote">a Windows notification</span>) about anyone you've played with or against before.</p>
+      <label class="switch"><input type="checkbox" id="live"><span class="track"></span><span>Check games as they load</span></label>
+      <p class="small muted" id="lastLobby" style="margin:8px 0 0"></p>
+      <p class="small muted" id="gameClient" style="margin:4px 0 0"></p>
+      <p class="small" id="pickState" style="margin:8px 0 0"></p>
+      <label class="switch" style="margin-top:10px"><input type="checkbox" id="games"><span class="track"></span><span>Show how each game went (personal bests, losing runs)</span></label>
+      <p class="small muted" id="lastGame" style="margin:8px 0 0"></p>
+    </section>
+    <section class="panel">
+      <h2>On this computer</h2>
+      <p class="small muted" id="sysWhere">The uploader sits by the clock and keeps sending new replays as you play.</p>
+      <label class="switch" id="autoWrap"><input type="checkbox" id="auto"><span class="track"></span><span id="sysStart">Start with Windows</span></label>
+      <label class="switch" style="margin-top:10px" id="updAutoWrap"><input type="checkbox" id="updAuto"><span class="track"></span><span>Update automatically</span></label>
+      <p class="small" style="margin:10px 0 0" id="updText"></p>
+      <p class="small" style="margin:10px 0 0"><button class="link" id="log">Show the log file</button> · <span class="muted" id="ver"></span></p>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Recent activity</h2>
+    <ul class="recent" id="recent"></ul>
+  </section>
+</main>
+<script>
+const KEY = "__KEY__";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function call(path, body) {
+  const r = await fetch('/api/' + path, body === undefined ? { headers: { 'X-Key': KEY } } : { method: 'POST', headers: { 'X-Key': KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const ago = (t) => { if (!t) return ''; const s = Math.round((Date.now() - new Date(t)) / 1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
+const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+let state = null;
+let reopenHint = 'open it again from the Start menu or tray.';
+
+function render(s) {
+  state = s;
+  $('who').textContent = `${s.name ? `Uploading as ${s.name} · ` : ''}${s.server}`;
+  $('statusText').textContent = s.status.text || 'Starting…';
+  $('dot').className = 'dot' + (s.status.problem ? ' bad' : /Uploading|Starting/.test(s.status.text) ? ' busy' : '');
+  $('statusMore').textContent = s.status.lastSync ? `Last checked ${ago(s.status.lastSync)}. New replays are picked up within 30 seconds.` : '';
+  $('nReplays').textContent = s.replays; $('nSent').textContent = s.sent;
+  $('sentBar').style.width = (s.replays ? Math.round(100 * s.sent / s.replays) : 0) + '%';
+
+  $('folders').innerHTML = (s.folders || []).map((f) => `
+    <tr class="${f.on ? '' : 'off'}">
+      <td><span class="path">${esc(f.path)}</span>${f.exists ? '' : ' <span class="pill err">not found</span>'}</td>
+      <td class="r">${f.files}</td><td class="r">${f.sent}</td>
+      <td><label class="switch"><input type="checkbox" data-toggle="${esc(f.path)}" ${f.on ? 'checked' : ''} aria-label="Use ${esc(f.path)}"><span class="track"></span></label></td>
+      <td class="r"><button class="link" data-remove="${esc(f.path)}">Remove</button></td>
+    </tr>`).join('') || '<tr><td colspan="5" class="muted">No folders yet: add the folder your replays are in.</td></tr>';
+  $('suggest').innerHTML = (s.suggest || []).length ? 'Found on this computer: ' + s.suggest.map((p) => `<button class="link" data-add="${esc(p)}" style="color:var(--accent)">add <span class="path">${esc(p)}</span></button>`).join(' · ') : '';
+  $('pick').style.display = s.picker ? '' : 'none';
+
+  $('accounts').innerHTML = (s.accounts || []).map((a) => `
+    <tr><td>${a.battletag ? `<b>${esc(a.battletag)}</b>` : a.name ? `<b>${esc(a.name)}</b>` : '<span class="muted">not on the dashboard yet</span>'} <span class="small muted path">${esc(a.toon)}</span></td>
+      <td>${esc(a.region || '')}</td><td class="r">${a.replays}</td>
+      <td>${a.yours ? '<span class="pill good">linked to you</span>' : a.taken ? `<span class="pill">linked to someone else</span> <button class="link" data-open="accounts">It's mine?</button>` : a.games ? `<span class="small muted">${a.games} games</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">None found yet.</td></tr>';
+
+  const si = s.signin || {};
+  $('acctText').textContent = s.signedIn
+    ? (s.name ? `Signed in as ${s.name}. Your replays count as yours, and the accounts on this computer are suggested to you on the dashboard.` : 'Signed in with the site\'s upload key.')
+    : 'Not signed in: replays are uploaded for everyone to see, but don\'t count as yours. Sign in to have your games and accounts follow you.';
+  $('acctButtons').innerHTML = s.signedIn
+    ? '<button data-open="accounts">Your accounts</button><button data-signin="signout">Sign out</button>'
+    : si.pending ? '' : '<button class="primary" data-signin="start">Sign in</button>';
+  $('acctPending').style.display = si.pending ? '' : 'none';
+  $('acctCode').textContent = si.userCode || '';
+  if (si.error) $('acctErr').textContent = si.error;
+
+  renderRejoin(s);
+  $('live').checked = s.live.on;
+  $('games').checked = s.games.on;
+  $('lastGame').textContent = s.status.lastGame ? 'Last game: ' + s.status.lastGame : '';
+  $('lastLobby').textContent = s.status.lastLobby ? `Last game: ${s.status.lastLobby}` : '';
+  $('gameClient').textContent = s.status.client || '';
+  if (s.system) {
+    $('sysNote').textContent = s.system.notification; $('sysWhere').textContent = s.system.where;
+    $('sysStart').textContent = s.system.startLabel; $('pathIn').placeholder = 'or paste a folder path, e.g. ' + s.system.examplePath;
+    reopenHint = s.system.reopen;
+  }
+  $('autoWrap').style.display = s.autostart.supported ? '' : 'none';
+  $('auto').checked = s.autostart.on;
+  $('ver').textContent = 'version ' + s.version;
+  const up = s.update || {};
+  $('updAutoWrap').style.display = up.canApply ? '' : 'none';
+  $('updAuto').checked = !!up.auto;
+  $('updText').innerHTML = up.busy ? '<span class="muted">Updating… the uploader restarts by itself in a moment.</span>'
+    : up.available ? `<b>Version ${esc(up.latest)} is ready.</b> ${up.canApply ? '<button class="primary" id="updNow">Update now</button>' : '<span class="muted">Download it again from the dashboard.</span>'}`
+    : `<span class="muted">${up.checked ? 'Up to date.' : ''}</span> <button id="updCheck">Check for updates</button>`;
+  if (up.error) $('updText').innerHTML += `<br><span class="err">${esc(up.error)}</span>`;
+  const mv = $('moveWarn');
+  mv.style.display = up.moveTo ? '' : 'none';
+  if (up.moveTo) mv.innerHTML = `<b>The dashboard says it has moved to <span class="path">${esc(up.moveTo)}</span>.</b> Only switch if you expected this: from then on your sign-in, replays and updates come from that address.
+    <div class="row" style="margin-top:8px"><button class="primary" id="moveYes">Switch to it</button><button id="moveNo">Not now</button></div>`;
+  $('httpWarn').style.display = up.insecure ? '' : 'none';
+  $('recent').innerHTML = (s.recent || []).slice(0, 15).map((e) => `<li><time>${clock(e.at)}</time><span>${esc(e.text)}</span></li>`).join('') || '<li class="muted">Nothing yet.</li>';
+}
+
+// the part of a rejoin folder worth reading: from the game's Accounts folder on (the full path is in the tooltip)
+const shortPath = (p) => { const i = p.search(/[\\/]Accounts[\\/]/i); return i > 0 ? '…' + p.slice(i) : p; };
+function renderRejoin(s) {
+  const rj = s.rejoin || { accounts: [], others: [], missing: 0, set: 0 };
+  const accts = rj.accounts || [];
+  const who = (a) => a.battletag ? `<b>${esc(a.battletag)}</b>` : a.name ? `<b>${esc(a.name)}</b>` : '<span class="muted">account</span>';
+  $('rejoinAccounts').innerHTML = accts.map((a) => {
+    const folder = a.folder || a.suggested;
+    let status;
+    if (a.set && a.off) status = '<span class="pill warn-pill">switched off</span>';
+    else if (a.set && a.lastSave) status = `<span class="pill good">set</span> <span class="small muted">last save ${esc(ago(a.lastSave))}</span>`;
+    else if (a.set) status = `<span class="pill good">set</span> <span class="small muted">${a.exists ? 'no saves yet' : 'appears once you play a game'}</span>`;
+    else status = '<span class="pill warn-pill">not set: no live picks</span>';
+    const actions = a.set
+      ? `<button class="link" data-rj-pick="${esc(a.toon)}">Change…</button> · <button class="link" data-rj-remove="${esc(a.folder)}">Remove</button>`
+      : `${a.suggested ? `<button data-rj-use="${esc(a.toon)}">Use this folder</button> ` : ''}<button class="link" data-rj-pick="${esc(a.toon)}">Choose…</button>`;
+    return `<tr class="${a.set && !a.off ? '' : 'off-live'}">
+      <td>${who(a)} <span class="small muted">${esc(a.region || '')}</span><span class="muted toon">${esc(a.toon)}</span></td>
+      <td>${folder ? `<span class="path${a.set ? '' : ' muted'}" title="${esc(folder)}">${esc(shortPath(folder))}</span>${a.set ? '' : '<span class="small muted sub-path">suggested: the game\'s own folder for this account</span>'}` : '<span class="muted">not known: choose it</span>'}</td>
+      <td>${status}</td>
+      <td class="r" style="white-space:nowrap">${actions}</td></tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No accounts found yet: add your replay folders first, and each account shows up here.</td></tr>';
+  $('rejoinOthers').innerHTML = (rj.others || []).length ? `<p class="small muted" style="margin:12px 0 4px">Other rejoin folders</p><table><tbody>${rj.others.map((f) => `
+    <tr class="${f.on ? '' : 'off'}"><td><span class="path">${esc(f.path)}</span>${f.exists ? '' : ' <span class="pill err">not found</span>'}</td>
+      <td class="r small muted">${f.files} save${f.files === 1 ? '' : 's'}</td>
+      <td><label class="switch"><input type="checkbox" data-rj-toggle="${esc(f.path)}" ${f.on ? 'checked' : ''} aria-label="Use ${esc(f.path)}"><span class="track"></span></label></td>
+      <td class="r"><button class="link" data-rj-remove="${esc(f.path)}">Remove</button></td></tr>`).join('')}</tbody></table>` : '';
+  const missing = accts.filter((a) => !a.set || a.off);
+  const canAll = missing.filter((a) => a.suggested).length;
+  $('rejoinAll').style.display = canAll > 1 ? '' : 'none';
+  $('rejoinPick').style.display = s.picker ? '' : 'none';
+  const warn = $('rejoinWarn');
+  if (!s.live.on) { warn.style.display = 'none'; }
+  else if (!rj.set) {
+    warn.style.display = '';
+    warn.innerHTML = '<b>Live hero picks won\'t work yet.</b> No rejoin folder is set, so the live page can only show each player\'s most played hero, not what they picked, and matchups against the enemy\'s heroes stay empty. Set the folder for the accounts you play on.';
+  } else if (missing.length) {
+    warn.style.display = '';
+    warn.innerHTML = `<b>${missing.length === 1 ? 'One account has' : `${missing.length} accounts have`} no rejoin folder.</b> Games on ${missing.length === 1 ? 'it' : 'them'} won't show live picks.`;
+  } else { warn.style.display = 'none'; }
+  const total = accts.length;
+  $('pickState').innerHTML = !s.live.on ? '' : !total ? '' : missing.length === 0
+    ? '<span class="ok-note">✓ Hero picks: set up for every account.</span>'
+    : `<span style="color:var(--warn)">Hero picks: set up for ${total - missing.length} of ${total} account${total === 1 ? '' : 's'}.</span> <a href="#liveFolders" style="color:var(--accent)">Live game folders</a>`;
+}
+
+async function rj(body) { $('rejoinErr').textContent = ''; try { await call('rejoin', body); } catch (e) { $('rejoinErr').textContent = e.message; } refresh(); }
+
+// Updating restarts the uploader, which serves this page at the same address again: keep asking, and reload once
+// a new version answers (so the page itself is the new one too). A restart takes a few seconds; after a minute
+// with no answer it has stopped (or came back at a new address, which it opens itself).
+let loadedVersion = null, downSince = 0, restarting = false;
+async function refresh() {
+  try {
+    const s = await call('state');
+    if (loadedVersion && s.version !== loadedVersion) { location.reload(); return; }
+    loadedVersion = s.version; downSince = 0; restarting = !!(s.update && (s.update.busy || s.update.available));
+    render(s);
+  } catch (e) {
+    downSince = downSince || Date.now();
+    const quiet = Date.now() - downSince < 60000;
+    $('statusText').textContent = quiet && restarting ? 'Updating: this page reconnects by itself in a moment…'
+      : quiet ? 'Reconnecting to the uploader…'
+      : 'The uploader has stopped: ' + reopenHint;
+    $('dot').className = quiet ? 'dot busy' : 'dot bad';
+  }
+}
+async function act(path, body) { $('folderErr').textContent = ''; try { await call(path, body); } catch (e) { $('folderErr').textContent = e.message; } refresh(); }
+
+$('sync').onclick = () => act('sync', {});
+$('dash').onclick = () => act('open', { what: 'dashboard' });
+async function signin(action) {
+  $('acctErr').textContent = '';
+  try { await call('signin', { action }); } catch (e) { $('acctErr').textContent = e.message; }
+  refresh();
+}
+$('acctReopen').onclick = () => signin('reopen');
+$('acctCancel').onclick = () => signin('cancel');
+$('log').onclick = () => act('open', { what: 'log' });
+$('pick').onclick = () => act('folders', { action: 'pick' });
+$('addPath').onclick = () => { const p = $('pathIn').value.trim(); if (p) act('folders', { action: 'add', path: p }).then(() => { if (!$('folderErr').textContent) $('pathIn').value = ''; }); };
+$('pathIn').onkeydown = (e) => { if (e.key === 'Enter') $('addPath').click(); };
+$('live').onchange = (e) => act('live', { on: e.target.checked });
+$('rejoinAll').onclick = () => rj({ action: 'useAll' });
+$('rejoinPick').onclick = () => rj({ action: 'pick' });
+$('games').onchange = (e) => act('games', { on: e.target.checked });
+$('auto').onchange = (e) => act('autostart', { on: e.target.checked });
+$('updAuto').onchange = (e) => act('update', { action: 'auto', on: e.target.checked });
+document.addEventListener('click', (e) => {
+  const rm = e.target.closest('[data-remove]'); if (rm && confirm('Stop using this folder? Nothing is deleted.')) act('folders', { action: 'remove', path: rm.dataset.remove });
+  const ad = e.target.closest('[data-add]'); if (ad) act('folders', { action: 'add', path: ad.dataset.add });
+  const si = e.target.closest('[data-signin]'); if (si && (si.dataset.signin !== 'signout' || confirm('Sign out? Replays keep uploading, but won\'t count as yours.'))) signin(si.dataset.signin);
+  const op = e.target.closest('[data-open]'); if (op) act('open', { what: op.dataset.open });
+  const ru = e.target.closest('[data-rj-use]'); if (ru) rj({ action: 'use', toon: ru.dataset.rjUse });
+  const rp = e.target.closest('[data-rj-pick]'); if (rp) rj({ action: 'pick', toon: rp.dataset.rjPick });
+  const rr = e.target.closest('[data-rj-remove]'); if (rr && confirm('Stop reading live picks from this folder? Nothing is deleted.')) rj({ action: 'remove', path: rr.dataset.rjRemove });
+  if (e.target.closest('#updNow')) act('update', { action: 'now' });
+  if (e.target.closest('#updCheck')) act('update', { action: 'check' });
+  if (e.target.closest('#moveYes')) act('move', { action: 'accept' });
+  if (e.target.closest('#moveNo')) act('move', { action: 'dismiss' });
+});
+document.addEventListener('change', (e) => {
+  const t = e.target.closest('[data-toggle]'); if (t) act('folders', { action: 'toggle', path: t.dataset.toggle, on: t.checked });
+  const r = e.target.closest('[data-rj-toggle]'); if (r) rj({ action: 'toggle', path: r.dataset.rjToggle, on: r.checked });
+});
+refresh(); setInterval(refresh, 2000);
+</script>
+</body>
+</html>
