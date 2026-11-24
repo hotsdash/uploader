@@ -6,14 +6,22 @@ name: Release
 on:
   workflow_dispatch:
 
+# Read-only by default; only the release job gets more (below).
 permissions:
-  contents: write # to create the release
+  contents: read
 
 concurrency: release
 
 jobs:
   release:
+    # only from main
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # The signing key is a secret of the `release` environment (Settings > Environments), where a required reviewer
+    # can be set: the job waits for approval before it can read it.
+    environment: release
+    permissions:
+      contents: write # create the release and its tag with the built-in GITHUB_TOKEN (no personal token)
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -23,16 +31,20 @@ jobs:
 
       - name: Check the signing key is there
         env:
-          UPLOADER_SIGNING_KEY: ${{ secrets.UPLOADER_SIGNING_KEY }}
+          # exactly the one line `go run ./tools/sign keygen` prints (a base64 seed): no name= prefix
+          SIGNING_KEY: ${{ secrets.UPLOADER_SIGNING_KEY }}
         run: |
-          if [ -z "$UPLOADER_SIGNING_KEY" ]; then
+          if [ -z "$SIGNING_KEY" ]; then
             echo "::error::The UPLOADER_SIGNING_KEY secret is missing: a release has to be signed, or installed copies would refuse it."
             exit 1
           fi
-          # the key goes in a file only this job can read; the scripts take the file's path
+          # a file only this job can read; the scripts take its path. The key itself is never printed.
           umask 077
-          printf '%s' "$UPLOADER_SIGNING_KEY" > "$RUNNER_TEMP/uploader-signing.key"
-          echo "UPLOADER_SIGNING_KEY=$RUNNER_TEMP/uploader-signing.key" >> "$GITHUB_ENV"
+          keyfile=$(mktemp "$RUNNER_TEMP/uploader-signing.XXXXXX")
+          chmod 600 "$keyfile"
+          printf '%s
+' "$SIGNING_KEY" > "$keyfile"
+          echo "UPLOADER_SIGNING_KEY=$keyfile" >> "$GITHUB_ENV"
 
       - name: Vet and test
         run: |
@@ -96,4 +108,4 @@ jobs:
 
       - name: Remove the key
         if: always()
-        run: rm -f "$RUNNER_TEMP/uploader-signing.key"
+        run: rm -f "$UPLOADER_SIGNING_KEY"
