@@ -157,3 +157,81 @@ func TestUpdateRedirectOnTheSameHostIsFollowedAndTheBytesChecked(t *testing.T) {
 	}
 	_ = p
 }
+
+func TestUpdateURLOnlyFromTheReleaseAllowList(t *testing.T) {
+	const ok = "https://github.com/hotsdash/uploader/releases/download/v2026.11.24.1717/hots-dash-uploader.exe"
+	own := "https://hotsdash.com/api/uploader/update" + platformQuery()
+	for name, c := range map[string]struct{ url, want string }{
+		"release file":      {ok, ok},
+		"missing":           {"", own},
+		"plain http":        {strings.Replace(ok, "https:", "http:", 1), own},
+		"another repo":      {"https://github.com/evil/uploader/releases/download/v1/x.exe", own},
+		"another host":      {"https://evil.example/hotsdash/uploader/releases/download/v1/x.exe", own},
+		"look-alike host":   {"https://github.com.evil.example/hotsdash/uploader/releases/download/v1/x.exe", own},
+		"user info":         {"https://github.com@evil.example/hotsdash/uploader/releases/download/v1/x.exe", own},
+		"user info inside":  {"https://github.com/hotsdash/uploader/releases/download/@evil", "https://github.com/hotsdash/uploader/releases/download/@evil"},
+		"prefix only":       {"https://github.com/hotsdash/uploader/releases/download/", own},
+		"upper-case scheme": {"HTTPS://github.com/hotsdash/uploader/releases/download/v1/x.exe", own},
+	} {
+		if got := updateURL(&latestInfo{URL: c.url}, "https://hotsdash.com"); got != c.want {
+			t.Errorf("%s: %s, want %s", name, got, c.want)
+		}
+	}
+	// an older dashboard sends no url at all
+	var old latestInfo
+	if err := json.Unmarshal([]byte(`{"version":"2026.11.01.0100","sha256":"ab","size":3,"signature":"x"}`), &old); err != nil || old.URL != "" {
+		t.Fatalf("%+v %v", old, err)
+	}
+}
+
+func TestUpdateDownloadsFromTheReleaseURLAndStillVerifies(t *testing.T) {
+	prog := fakeProgram("body")
+	sum := sha256.Sum256(prog)
+	var fromDashboard, fromRelease int
+	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fromRelease++
+		_, _ = w.Write(prog)
+	}))
+	defer release.Close()
+	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fromDashboard++
+		http.Error(w, "should not be asked", 500)
+	}))
+	defer dash.Close()
+	old := releaseURLPrefix
+	releaseURLPrefix = release.URL + "/releases/download/"
+	defer func() { releaseURLPrefix = old }()
+	a := NewAgent(Config{Server: dash.URL, Folders: []Folder{{Path: t.TempDir()}}}, t.TempDir(), log.New(io.Discard, "", 0))
+	good := &latestInfo{Version: "2026.11.24.1717", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(prog)), URL: releaseURL("v1/prog")}
+
+	if _, err := a.download(good); err != nil || fromRelease != 1 || fromDashboard != 0 {
+		t.Fatalf("release url: err %v, release %d dashboard %d", err, fromRelease, fromDashboard)
+	}
+	// the same checks as ever, whoever serves the bytes
+	bad := *good
+	bad.SHA256 = strings.Repeat("0", 64)
+	if _, err := a.download(&bad); err == nil || !strings.Contains(err.Error(), "match") {
+		t.Errorf("wrong hash: %v", err)
+	}
+	bad = *good
+	bad.Size = 5
+	if _, err := a.download(&bad); err == nil || !strings.Contains(err.Error(), "short") {
+		t.Errorf("wrong size: %v", err)
+	}
+	// off the list: ignored, the dashboard's own endpoint is asked (here it refuses)
+	off := *good
+	off.URL = release.URL + "/elsewhere/prog"
+	fromRelease = 0
+	if _, err := a.download(&off); err == nil || fromDashboard != 1 || fromRelease != 0 {
+		t.Errorf("off-list url: err %v, release %d dashboard %d", err, fromRelease, fromDashboard)
+	}
+	// no url (an older dashboard): the dashboard's endpoint, as before
+	none := *good
+	none.URL = ""
+	fromDashboard = 0
+	if _, err := a.download(&none); err == nil || fromDashboard != 1 {
+		t.Errorf("no url: err %v, dashboard %d", err, fromDashboard)
+	}
+}
+
+func releaseURL(path string) string { return releaseURLPrefix + path }

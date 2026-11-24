@@ -84,8 +84,26 @@ type latestInfo struct {
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
 	Size    int64  `json:"size"`
+	// URL: where this platform's bare program can be fetched from directly (a GitHub release file). Used only when it
+	// starts with releaseURLPrefix; otherwise the dashboard's own /api/uploader/update is asked, as before.
+	URL string `json:"url,omitempty"`
 	// Signature: base64 Ed25519 over updatesig.Message(Version, sha256 of the program)
 	Signature string `json:"signature,omitempty"`
+}
+
+// releaseURLPrefix: the only addresses a dashboard may point the update download at (a variable only so tests can
+// aim it at a local server).
+var releaseURLPrefix = "https://github.com/hotsdash/uploader/releases/download/"
+
+// updateURL: where to fetch the update from: the dashboard's url when it's a release file of this project, else
+// the dashboard's own download endpoint.
+func updateURL(v *latestInfo, server string) string {
+	if v != nil && strings.HasPrefix(v.URL, releaseURLPrefix) && len(v.URL) > len(releaseURLPrefix) {
+		if u, err := url.Parse(v.URL); err == nil && u.User == nil && u.Fragment == "" {
+			return v.URL
+		}
+	}
+	return server + "/api/uploader/update" + platformQuery()
 }
 
 var errInsecureUpdate = errors.New("this dashboard's address is plain http, so the uploader won't update itself from it: download the new version from the dashboard")
@@ -241,7 +259,7 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest("GET", a.Config().Server+"/api/uploader/update"+platformQuery(), nil)
+	req, err := http.NewRequest("GET", updateURL(v, a.Config().Server), nil)
 	if err != nil {
 		return "", err
 	}
