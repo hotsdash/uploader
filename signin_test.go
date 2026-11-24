@@ -61,6 +61,13 @@ func TestFirstRunStartsSignInOnceWithTheCodeInTheAddress(t *testing.T) {
 	if u := a.SignInState().URL; !strings.HasSuffix(u, "/link?code=ABCD-EFGH") {
 		t.Fatalf("approval page %q", u)
 	}
+	for i := 0; i < 100 && len(openedURLs()) == 0; i++ { // opened just after it's marked pending
+		time.Sleep(20 * time.Millisecond)
+	}
+	got := openedURLs()
+	if len(got) == 0 || got[len(got)-1] != srv.URL+"/link?code=ABCD-EFGH" {
+		t.Fatalf("the browser was asked to open %v, want the verify URL with the code", got)
+	}
 	a.autoSignIn()
 	select {
 	case <-asked:

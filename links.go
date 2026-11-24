@@ -41,8 +41,15 @@ func onSite(u, server string) bool {
 	return a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host) && (a.Path == base || strings.HasPrefix(a.Path, base+"/"))
 }
 
-// openURL opens a web address in the browser. Anything else is refused.
-func openURL(u string) bool {
+// openURL opens a web address in the browser (a variable so tests can swap in a recorder: main_test.go TestMain
+// does, before any test runs, so no test can open a browser).
+var openURL = openURLReal
+
+// openFile opens a file the uploader made itself (the log), never a path from elsewhere. A variable for the same reason.
+var openFile = openFileReal
+
+// openURLReal opens a web address in the browser. Anything else is refused.
+func openURLReal(u string) bool {
 	if !webLink(u) {
 		return false
 	}
@@ -50,5 +57,4 @@ func openURL(u string) bool {
 	return true
 }
 
-// openFile opens a file the uploader made itself (the log), never a path from elsewhere.
-func openFile(path string) { shellOpen(path) }
+func openFileReal(path string) { shellOpen(path) }
