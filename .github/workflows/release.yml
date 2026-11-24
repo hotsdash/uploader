@@ -42,8 +42,7 @@ jobs:
           umask 077
           keyfile=$(mktemp "$RUNNER_TEMP/uploader-signing.XXXXXX")
           chmod 600 "$keyfile"
-          printf '%s
-' "$SIGNING_KEY" > "$keyfile"
+          printf '%s\n' "$SIGNING_KEY" > "$keyfile"
           echo "UPLOADER_SIGNING_KEY=$keyfile" >> "$GITHUB_ENV"
 
       - name: Vet and test
