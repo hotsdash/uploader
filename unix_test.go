@@ -169,3 +169,74 @@ func TestFolderWatchSeesNewReplays(t *testing.T) {
 		t.Fatal("still alive after close")
 	}
 }
+
+func TestTokenFromTheEnvironment(t *testing.T) {
+	var warn strings.Builder
+	t.Setenv(tokenEnv, "hdu_env")
+	if got := uploadToken("", &warn); got != "hdu_env" || warn.Len() != 0 {
+		t.Errorf("from the environment: %q, warned %q", got, warn.String())
+	}
+	if v, set := os.LookupEnv(tokenEnv); set {
+		t.Errorf("programs started later would inherit the token: %q", v)
+	}
+	t.Setenv(tokenEnv, "hdu_env")
+	if got := uploadToken("hdu_flag", &warn); got != "hdu_flag" {
+		t.Errorf("--token wins: %q", got)
+	}
+	if !strings.Contains(warn.String(), "other programs") || !strings.Contains(warn.String(), tokenEnv) {
+		t.Errorf("no warning: %q", warn.String())
+	}
+	if strings.Contains(warn.String(), "hdu_") {
+		t.Errorf("the warning repeats the token: %q", warn.String())
+	}
+	if _, set := os.LookupEnv(tokenEnv); set {
+		t.Error("left in the environment")
+	}
+}
+
+func wantMode(t *testing.T, p string, want os.FileMode) {
+	t.Helper()
+	st, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != want {
+		t.Errorf("%s is %o, want %o", p, got, want)
+	}
+}
+
+func TestTheSettingsFolderIsPrivate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	d := appDir()
+	wantMode(t, d, 0o700)
+	if err := os.Chmod(d, 0o755); err != nil { // made by an earlier version
+		t.Fatal(err)
+	}
+	appDir()
+	wantMode(t, d, 0o700)
+}
+
+func TestTheLogIsPrivate(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "uploader.log")
+	newLogger(dir, nil).Print("x")
+	wantMode(t, p, 0o600)
+	if err := os.Chmod(p, 0o644); err != nil { // made by an earlier version
+		t.Fatal(err)
+	}
+	newLogger(dir, nil)
+	wantMode(t, p, 0o600)
+
+	// a full log is set aside, and the old one is made private too
+	if err := os.WriteFile(p, make([]byte, 1<<20+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newLogger(dir, nil)
+	wantMode(t, p, 0o600)
+	wantMode(t, p+".old", 0o600)
+}

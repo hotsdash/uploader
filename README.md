@@ -27,7 +27,8 @@ Every download of a version is the same file for everyone, byte for byte.
 ## How sign-in works
 
 Nothing is set up in the download. The uploader uploads to `https://hotsdash.com` by default; to use another
-dashboard (self-hosting), change the address in its settings page, or start it with `-server https://your.dashboard`.
+dashboard (self-hosting) on Linux or macOS, start it with `-server https://your.dashboard`, which runs it in that
+terminal.
 
 The first time it runs (and isn't signed in) it signs in like a TV app:
 
@@ -45,12 +46,26 @@ Copies installed before this repository existed carry on as they were: the saved
 as before, and the old settings appended to the `.exe` (a `HDCFG001` trailer) or the `hots-dash-setup.json` beside the
 program are still understood.
 
+## Running it with your own token
+
+With `-server`, the uploader runs in the terminal and takes an upload token from the `HOTSDASH_TOKEN` environment
+variable (Linux and macOS):
+
+```sh
+read -rs HOTSDASH_TOKEN && export HOTSDASH_TOKEN    # paste the token; it isn't shown or kept in shell history
+hots-dash-uploader -server https://your.dashboard
+```
+
+`--token` still works, but other programs on the computer can see a command line, so it prints a warning.
+
 ## Where things are
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
 | program | `%LOCALAPPDATA%\Programs\hots-dash\` | `~/.local/bin/hots-dash-uploader` | app folder (`~/Library/Application Support/hots-dash`) |
 | settings (`config.json`), state, log | `%APPDATA%\hots-dash` | `~/.config/hots-dash` | `~/Library/Application Support/hots-dash` |
+
+On Linux and macOS the settings folder and the log are readable by you only.
 
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
 

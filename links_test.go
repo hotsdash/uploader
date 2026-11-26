@@ -63,10 +63,41 @@ func TestOnSite(t *testing.T) {
 		"https://evil.example/hots/link":             false,
 		"https://hots.example.com.evil.example/link": false,
 		`\\hots.example.com\share`:                   false,
+		// dot segments that would climb out of the dashboard's path, plain or encoded
+		"https://hots.example.com/hots/../other":         false,
+		"https://hots.example.com/hots/x/../../other":    false,
+		"https://hots.example.com/hots/%2e%2e/other":     false,
+		"https://hots.example.com/hots/%2E%2E/other":     false,
+		"https://hots.example.com/hots/.%2e/other":       false,
+		"https://hots.example.com/hots/..%2fother":       false,
+		"https://hots.example.com/hots/x%2f..%2f..":      false,
+		"https://hots.example.com/hots/..%5cother":       false,
+		"https://hots.example.com/hots/x/../link":        false, // refused even when it stays inside
+		"https://hots.example.com/hots/./link":           true,
+		"https://hots.example.com/hots/..link":           true, // a name, not a dot segment
+		"https://hots.example.com/hots/link?next=/../up": true, // the query isn't a path
+		"https://hots.example.com/hots":                  true,
+		"https://hots.example.com/hots/":                 true,
 	}
 	for u, want := range cases {
 		if got := onSite(u, server); got != want {
 			t.Errorf("onSite(%q) = %v, want %v", u, got, want)
+		}
+	}
+}
+
+func TestOnSiteWithADashboardAtTheRoot(t *testing.T) {
+	for _, server := range []string{"https://hots.example.com", "https://hots.example.com/"} {
+		for u, want := range map[string]bool{
+			"https://hots.example.com":              true,
+			"https://hots.example.com/":             true,
+			"https://hots.example.com/link?code=AB": true,
+			"https://hots.example.com/a/%2e%2e/b":   false,
+			"https://evil.example/link":             false,
+		} {
+			if got := onSite(u, server); got != want {
+				t.Errorf("onSite(%q, %q) = %v, want %v", u, server, got, want)
+			}
 		}
 	}
 }

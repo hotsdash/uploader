@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -28,7 +29,7 @@ import (
 // from the browser on first run (signin.go autoSignIn).
 const trailerMagic = "HDCFG001"
 
-// defaultServer: where a copy with no settings uploads. Self-hosters change it in Settings or with -server.
+// defaultServer: where a copy with no settings uploads. Self-hosters start it with -server.
 const defaultServer = "https://hotsdash.com"
 
 // setupFile: the settings that come with a Linux or Mac download, beside the program.
@@ -90,15 +91,24 @@ func parseSettings(b []byte) (*Config, error) {
 }
 
 // appDir is where config, state and the log live: %APPDATA%\hots-dash on Windows, ~/.config/hots-dash on Linux,
-// ~/Library/Application Support/hots-dash on a Mac.
+// ~/Library/Application Support/hots-dash on a Mac. On Linux and Macs only you can read it.
 func appDir() string {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		base, _ = os.UserHomeDir()
 	}
 	d := filepath.Join(base, "hots-dash")
-	_ = os.MkdirAll(d, 0o755)
+	_ = os.MkdirAll(d, 0o700)
+	makePrivate(d, 0o700) // one made by an earlier version
 	return d
+}
+
+// makePrivate takes other users' access away from p, as far as it can. Not on Windows, where %APPDATA% is already
+// the user's own.
+func makePrivate(p string, mode os.FileMode) {
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(p, mode)
+	}
 }
 
 func loadSaved(dir string) *Config {
@@ -120,18 +130,18 @@ func saveConfig(dir string, c Config) {
 
 // resolveConfig: settings in a fresh download win (new settings), but keep any folder overrides the person set by
 // hand in config.json. The same download starting again (every Windows start) keeps what was changed since, such
-// as signing in or out from the settings page.
-func resolveConfig(dir string) *Config {
+// as signing in or out from the settings page. With neither, it's defaultServer and a first-run sign-in.
+func resolveConfig(dir string) Config {
 	saved := loadSaved(dir)
 	emb, _ := embeddedConfig()
 	if emb == nil {
 		if saved == nil {
-			return &Config{Server: defaultServer, AskSignIn: true}
+			return Config{Server: defaultServer, AskSignIn: true}
 		}
-		return saved
+		return *saved
 	}
 	if saved != nil && saved.Embedded == emb.Embedded {
-		return saved
+		return *saved
 	}
 	if saved != nil {
 		// a fresh download brings the server address and key; your folders and choices stay
@@ -161,7 +171,7 @@ func resolveConfig(dir string) *Config {
 		}
 	}
 	saveConfig(dir, *emb)
-	return emb
+	return *emb
 }
 
 // newLogger writes to uploader.log in dir (starting afresh once it passes 1 MB), and to extra if given.
@@ -171,9 +181,11 @@ func newLogger(dir string, extra io.Writer) *log.Logger {
 		_ = os.Rename(p, p+".old")
 	}
 	var w io.Writer = io.Discard
-	if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+	if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
 		w = f
 	}
+	makePrivate(p, 0o600)
+	makePrivate(p+".old", 0o600)
 	if extra != nil {
 		w = io.MultiWriter(w, extra)
 	}

@@ -10,6 +10,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 
 func main() {
 	server := flag.String("server", "", "hots-dash address, e.g. https://hotsdash.com (runs in this terminal)")
-	token := flag.String("token", "", "upload token")
+	token := flag.String("token", "", "upload token, with -server (other programs on this computer can see it: use "+tokenEnv+" instead)")
 	replays := flag.String("replays", "", "replay folders, comma-separated (default: found automatically)")
 	ui := flag.Bool("ui", false, "serve the settings page and print its address")
 	lobby := flag.String("lobby", "", "where the game writes the lobby file")
@@ -37,6 +38,7 @@ func main() {
 		fmt.Println("hots-dash uploader", version)
 		return
 	}
+	*token = uploadToken(*token, os.Stderr)
 	terminal := *foreground
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -48,7 +50,7 @@ func main() {
 	if dir == "" {
 		dir = appDir()
 	}
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o700) // a -data folder that already exists is left as it is
 
 	switch {
 	case *uninstall:
@@ -62,15 +64,26 @@ func main() {
 	}
 }
 
+// tokenEnv: the upload token can come from the environment, which other users of the computer can't read.
+const tokenEnv = "HOTSDASH_TOKEN"
+
+// uploadToken is the token for -server: --token if given (with a warning, as command lines show in the process list),
+// else tokenEnv. It's removed from the environment so the programs started from here (the browser) don't get it.
+func uploadToken(fromFlag string, warn io.Writer) string {
+	fromEnv := os.Getenv(tokenEnv)
+	_ = os.Unsetenv(tokenEnv)
+	if fromFlag == "" {
+		return fromEnv
+	}
+	fmt.Fprintf(warn, "Warning: other programs on this computer can see a token given with --token. Set %s instead.\n", tokenEnv)
+	return fromFlag
+}
+
 // runTerminal: the uploader in this terminal, until Ctrl+C.
 func runTerminal(dir, server, token, replays, lobby string, ui, once bool) {
 	cfg := resolveConfig(dir)
 	if server != "" {
-		cfg = &Config{Server: server, Token: token}
-	}
-	if cfg == nil {
-		fmt.Fprintln(os.Stderr, "Need --server and --token (or a download from your dashboard's Accounts page).")
-		os.Exit(1)
+		cfg = Config{Server: server, Token: token}
 	}
 	if replays != "" {
 		cfg.Folders = nil
@@ -84,7 +97,7 @@ func runTerminal(dir, server, token, replays, lobby string, ui, once bool) {
 		cfg.Lobby = lobby
 	}
 	logger := newLogger(dir, os.Stdout)
-	a := NewAgent(*cfg, dir, logger)
+	a := NewAgent(cfg, dir, logger)
 	a.OnConfigChange(func(c Config) { saveConfig(dir, c) })
 	a.Notify = func(title, msg, _ string) { logger.Printf("NOTIFY %s\n%s", title, msg) }
 	if once {
@@ -120,10 +133,6 @@ func stopOnSignal() chan struct{} {
 // installOrOpen: run from a download, install and start; run as the installed copy, open the settings page.
 func installOrOpen(dir string) {
 	cfg := resolveConfig(dir)
-	if cfg == nil {
-		fmt.Println("This copy isn't set up for a dashboard.\n\nOpen your hots-dash dashboard, go to Accounts, and use \"Download the uploader\": that copy is set up for you.")
-		os.Exit(1)
-	}
 	exe, _ := os.Executable()
 	target := installPath()
 	if !samePath(exe, target) {
@@ -206,15 +215,11 @@ func settingsURL(dir string, wait time.Duration) string {
 func runService(dir string, updated bool) {
 	logger := newLogger(dir, nil)
 	cfg := resolveConfig(dir)
-	if cfg == nil {
-		logger.Printf("not set up for a dashboard: download the uploader from the dashboard's Accounts page")
-		return // a clean exit, so it isn't restarted over and over
-	}
 	if !takeLock(dir) {
 		logger.Printf("already running")
 		return
 	}
-	a := NewAgent(*cfg, dir, logger)
+	a := NewAgent(cfg, dir, logger)
 	a.AutoSignIn = true
 	a.OnConfigChange(func(c Config) { saveConfig(dir, c) })
 	saveConfig(dir, a.Config()) // records the folders found on first run

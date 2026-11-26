@@ -31,7 +31,7 @@ import (
 
 var version = "dev"
 
-// Config is what the dashboard bakes into the download (see embedded.go), saved next to the state.
+// Config is what the dashboard bakes into the download (see config.go), saved next to the state.
 type Config struct {
 	Server string `json:"server"`
 	Token  string `json:"token"`

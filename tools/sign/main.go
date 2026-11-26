@@ -1,4 +1,4 @@
-// sign: the uploader's update signing key, used when the Docker image is built (see the Dockerfile).
+// sign: the uploader's update signing key, used by the release workflow (.github/workflows/release.yml).
 //
 //	go run ./tools/sign keygen                       prints a new private key (base64; keep it secret)
 //	go run ./tools/sign pub  -key FILE               prints its public key (hex, built into the uploader)
