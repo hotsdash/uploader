@@ -78,7 +78,7 @@ off **Get around networks that block hotsdash.com** in the settings page (`"noNe
 
 On Linux and macOS the settings folder and the log are readable by you only.
 
-(See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
+(See `tray_windows.go` and `platform_unix.go` in `cmd/hots-dash-uploader` for the exact paths and the autostart entries.)
 
 On Windows it also adds a Start menu shortcut, and registers its name for notifications under
 `HKCU\Software\Classes\AppUserModelId\HotsDash.Uploader`. Notifications are listed as "hots-dash uploader" in
@@ -102,13 +102,24 @@ Go 1.26 or newer; no other tools to install.
 ```sh
 go vet ./...
 go test ./...
-go build .                    # for this computer
-scripts/build.sh              # every platform into dist/ (VERSION=2026.11.25.1430 to set the version)
+go build ./cmd/hots-dash-uploader   # for this computer
+scripts/build.sh                    # every platform into dist/ (VERSION=2026.11.25.1430 to set the version)
 ```
 
 `scripts/build.sh` gives the Windows program its icon and file details (company, product, description, version; see
 `winres/winres.json`) with [go-winres](https://github.com/tc-hib/go-winres), at a pinned version that `go run`
 downloads the first time. A plain `go build` leaves them out.
+
+To build and install it with Go alone (a `dev` build, without the icon and file details; add
+`-ldflags -H=windowsgui` on Windows to leave out the console window):
+
+```sh
+go install github.com/hotsdash/uploader/cmd/hots-dash-uploader@latest
+```
+
+The program is in `cmd/hots-dash-uploader` (start-up, install, tray). What it does is under `internal/`: `agent`
+(sync, lobby, sign-in, updates, settings page), `netfix` (networks that block the dashboard), `links` (what may be
+opened), `winshell` (Windows notifications and shortcut) and `updatesig` (what an update's signature covers).
 
 Versions are the build time in UTC, `YYYY.MM.DD.HHMM`; a bigger one is newer. A build from source is version `dev`,
 which never updates itself.
@@ -124,7 +135,7 @@ Whoever serves the bytes, the copy refuses the update unless all of these hold:
 
 - the size and SHA-256 match what the dashboard announced;
 - an Ed25519 signature over the version and that SHA-256 verifies against one of the public keys built into the
-  running program (`main.updateKey`). When the dashboard passes on `signatureV2`, which names the platform as well
+  running program (`internal/agent.updateKey`). When the dashboard passes on `signatureV2`, which names the platform as well
   (`updatesig.MessageV2`), that one has to verify for the running system; without it, `signature`
   (`updatesig.Message`) does;
 - the file is a program for this system.
@@ -140,7 +151,7 @@ dashboard. Only a build from source (`dev`) goes without the signature check, an
 
 ### The two keys
 
-A release has two public keys built in, comma-separated in `main.updateKey`:
+A release has two public keys built in, comma-separated in `internal/agent.updateKey`:
 
 - the **release key**: `UPLOADER_PUBKEY` (a repository variable, required), the public half of the
   `UPLOADER_SIGNING_KEY` secret that signs releases. The release fails if the two don't match;
@@ -190,7 +201,7 @@ The platform is the program's key in `latest.json`: `windows`, `linux-amd64`, `l
 
 To check a download yourself: compare its SHA-256 with `latest.json`, and verify a signature over
 `updatesig.Message(version, sha256)` or `updatesig.MessageV2(version, sha256, platform)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
-built into every release's program, first in `main.updateKey`).
+built into every release's program, first in `internal/agent.updateKey`).
 
 Releases made while the repository is public also carry build provenance: GitHub's signed record of which workflow run,
 at which commit, produced each file. To check a downloaded file with the GitHub CLI:

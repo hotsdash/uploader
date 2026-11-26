@@ -54,20 +54,23 @@ if [ -n "$UPLOADER_BACKUP_PUBKEY" ]; then
   PUB=$PUB,$backup
 fi
 export CGO_ENABLED=0
-FLAGS="-s -w -X main.version=$VERSION -X main.updateKey=$PUB"
+# -X takes a variable's full name, and says nothing when there's no such variable (CI looks for the keys in the programs)
+PKG=github.com/hotsdash/uploader/internal/agent
+FLAGS="-s -w -X $PKG.Version=$VERSION -X $PKG.updateKey=$PUB"
+APP=./cmd/hots-dash-uploader
 # The Windows program's icon and file details (winres/winres.json, with VERSION as its version). go build links any
-# .syso it finds here, so it is made just for this one build and removed again, also when the build fails.
-SYSO=rsrc_windows_amd64.syso
+# .syso it finds in the package it builds, so it is made just for this one build and removed again, also when the build fails.
+SYSO=$APP/rsrc_windows_amd64.syso
 trap 'rm -f "$SYSO"' EXIT
 trap 'exit 1' HUP INT TERM
-GOOS= GOARCH= go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out rsrc \
+GOOS= GOARCH= go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out "$APP/rsrc" \
   --file-version "$VERSION" --product-version "$VERSION"
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui $FLAGS" -o dist/hots-dash-uploader.exe .
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui $FLAGS" -o dist/hots-dash-uploader.exe "$APP"
 rm "$SYSO"
-GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-amd64 .
-GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-arm64 .
-GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/darwin-arm64 .
-GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$FLAGS" -o dist/darwin-amd64 .
+GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-amd64 "$APP"
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-arm64 "$APP"
+GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/darwin-arm64 "$APP"
+GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "$FLAGS" -o dist/darwin-amd64 "$APP"
 go run ./tools/lipo -out dist/hots-dash-uploader-macos dist/darwin-arm64 dist/darwin-amd64
 rm dist/darwin-arm64 dist/darwin-amd64
 printf '%s' "$VERSION" > dist/version.txt
