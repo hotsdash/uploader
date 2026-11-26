@@ -69,7 +69,9 @@ which never updates itself.
 Installed copies don't look at GitHub. Every few hours they ask the dashboard they upload to (`{server}/api/uploader/version`)
 what the newest version is, and download it from `{server}/api/uploader/update`, which the dashboard may redirect to a
 release file here (the uploader follows redirects only to https on the dashboard's own host, `github.com` and
-`*.githubusercontent.com`). Whoever serves the bytes, the copy refuses the update unless all of these hold:
+`*.githubusercontent.com`). When the version answer carries the `url` of a release file of this project, that is
+fetched first; if it can't be had (an error, or anything but 200), `{server}/api/uploader/update` is asked once instead.
+Whoever serves the bytes, the copy refuses the update unless all of these hold:
 
 - the size and SHA-256 match what the dashboard announced;
 - an Ed25519 signature over the version and that SHA-256 verifies against one of the public keys built into the

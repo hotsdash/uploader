@@ -99,7 +99,7 @@ type latestInfo struct {
 // aim it at a local server).
 var releaseURLPrefix = "https://github.com/hotsdash/uploader/releases/download/"
 
-// updateURL: where to fetch the update from: the dashboard's url when it's a release file of this project, else
+// updateURL: where to fetch the update from first: the dashboard's url when it's a release file of this project, else
 // the dashboard's own download endpoint.
 func updateURL(v *latestInfo, server string) string {
 	if v != nil && strings.HasPrefix(v.URL, releaseURLPrefix) && len(v.URL) > len(releaseURLPrefix) {
@@ -107,6 +107,11 @@ func updateURL(v *latestInfo, server string) string {
 			return v.URL
 		}
 	}
+	return dashboardUpdateURL(server)
+}
+
+// dashboardUpdateURL: the dashboard's own download endpoint.
+func dashboardUpdateURL(server string) string {
 	return server + "/api/uploader/update" + platformQuery()
 }
 
@@ -271,23 +276,18 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest("GET", updateURL(v, a.Config().Server), nil)
-	if err != nil {
-		return "", err
+	server := a.Config().Server
+	from, own := updateURL(v, server), dashboardUpdateURL(server)
+	res, err := a.fetchUpdate(from)
+	if err != nil && from != own {
+		// the release file may be out of reach (a repository gone private answers 404): the dashboard has it too
+		a.log.Printf("update: couldn't get the release file (%v): asking the dashboard", err)
+		res, err = a.fetchUpdate(own)
 	}
-	req.Header.Set("User-Agent", userAgent())
-	// the dashboard may answer with a redirect to the release file on GitHub: followed, but only to https on the
-	// dashboard's own host or GitHub's. The size, hash and signature are checked below whoever served the bytes.
-	c := *a.client
-	c.CheckRedirect = updateRedirect(req.URL.Host)
-	res, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return "", fmt.Errorf("download: %d", res.StatusCode)
-	}
 	p := filepath.Join(d, programName())
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
@@ -326,6 +326,28 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// fetchUpdate asks for the program at from; anything but a 200 is an error. The dashboard may answer with a redirect to
+// the release file on GitHub: followed, but only to https on the dashboard's own host or GitHub's. The size, hash and
+// signature are checked by download, whoever served the bytes.
+func (a *Agent) fetchUpdate(from string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", from, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent())
+	c := *a.client
+	c.CheckRedirect = updateRedirect(req.URL.Host)
+	res, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != 200 {
+		res.Body.Close()
+		return nil, fmt.Errorf("download: %d", res.StatusCode)
+	}
+	return res, nil
 }
 
 // verifySignature checks the program's hash was signed for this version by a trusted key: for this platform when

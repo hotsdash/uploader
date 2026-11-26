@@ -235,3 +235,58 @@ func TestUpdateDownloadsFromTheReleaseURLAndStillVerifies(t *testing.T) {
 }
 
 func releaseURL(path string) string { return releaseURLPrefix + path }
+
+// A release file that can't be had (the repository gone private, GitHub out of reach) doesn't strand a copy: the
+// dashboard's own endpoint is asked once, and what it sends is checked like anything else.
+func TestUpdateFallsBackToTheDashboard(t *testing.T) {
+	prog := fakeProgram("body")
+	sum := sha256.Sum256(prog)
+	var fromDashboard, fromRelease int
+	release := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fromRelease++
+		http.NotFound(w, r)
+	}))
+	defer release.Close()
+	dashStatus, dashBody := 200, prog
+	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fromDashboard++
+		if r.URL.Path != "/api/uploader/update" || r.URL.Query().Get("os") != runtime.GOOS {
+			t.Errorf("asked for %s", r.URL)
+		}
+		w.WriteHeader(dashStatus)
+		_, _ = w.Write(dashBody)
+	}))
+	defer dash.Close()
+	old := releaseURLPrefix
+	releaseURLPrefix = release.URL + "/releases/download/"
+	defer func() { releaseURLPrefix = old }()
+	a := NewAgent(Config{Server: dash.URL, Folders: []Folder{{Path: t.TempDir()}}}, t.TempDir(), log.New(io.Discard, "", 0))
+	v := &latestInfo{Version: "2026.11.24.1717", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(prog)), URL: releaseURL("v1/prog")}
+
+	p, err := a.download(v)
+	if err != nil || fromRelease != 1 || fromDashboard != 1 {
+		t.Fatalf("404 from the release: err %v, release %d dashboard %d", err, fromRelease, fromDashboard)
+	}
+	if b, _ := os.ReadFile(p); string(b) != string(prog) {
+		t.Fatal("wrong file")
+	}
+
+	// the same checks as ever
+	dashBody = fakeProgram("evil")
+	if _, err := a.download(v); err == nil || !strings.Contains(err.Error(), "match") {
+		t.Errorf("wrong bytes from the dashboard: %v", err)
+	}
+
+	// both fail: an error, after one try each
+	dashStatus, fromRelease, fromDashboard = 500, 0, 0
+	if _, err := a.download(v); err == nil || fromRelease != 1 || fromDashboard != 1 {
+		t.Errorf("both failing: err %v, release %d dashboard %d", err, fromRelease, fromDashboard)
+	}
+
+	// a request that doesn't get an answer at all falls back too
+	release.Close()
+	dashStatus, dashBody, fromDashboard = 200, prog, 0
+	if _, err := a.download(v); err != nil || fromDashboard != 1 {
+		t.Errorf("release unreachable: err %v, dashboard %d", err, fromDashboard)
+	}
+}
