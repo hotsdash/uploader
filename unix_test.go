@@ -169,3 +169,27 @@ func TestFolderWatchSeesNewReplays(t *testing.T) {
 		t.Fatal("still alive after close")
 	}
 }
+
+func TestTokenFromTheEnvironment(t *testing.T) {
+	var warn strings.Builder
+	t.Setenv(tokenEnv, "hdu_env")
+	if got := uploadToken("", &warn); got != "hdu_env" || warn.Len() != 0 {
+		t.Errorf("from the environment: %q, warned %q", got, warn.String())
+	}
+	if v, set := os.LookupEnv(tokenEnv); set {
+		t.Errorf("programs started later would inherit the token: %q", v)
+	}
+	t.Setenv(tokenEnv, "hdu_env")
+	if got := uploadToken("hdu_flag", &warn); got != "hdu_flag" {
+		t.Errorf("--token wins: %q", got)
+	}
+	if !strings.Contains(warn.String(), "other programs") || !strings.Contains(warn.String(), tokenEnv) {
+		t.Errorf("no warning: %q", warn.String())
+	}
+	if strings.Contains(warn.String(), "hdu_") {
+		t.Errorf("the warning repeats the token: %q", warn.String())
+	}
+	if _, set := os.LookupEnv(tokenEnv); set {
+		t.Error("left in the environment")
+	}
+}

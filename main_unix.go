@@ -10,6 +10,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 
 func main() {
 	server := flag.String("server", "", "hots-dash address, e.g. https://hotsdash.com (runs in this terminal)")
-	token := flag.String("token", "", "upload token")
+	token := flag.String("token", "", "upload token, with -server (other programs on this computer can see it: use "+tokenEnv+" instead)")
 	replays := flag.String("replays", "", "replay folders, comma-separated (default: found automatically)")
 	ui := flag.Bool("ui", false, "serve the settings page and print its address")
 	lobby := flag.String("lobby", "", "where the game writes the lobby file")
@@ -37,6 +38,7 @@ func main() {
 		fmt.Println("hots-dash uploader", version)
 		return
 	}
+	*token = uploadToken(*token, os.Stderr)
 	terminal := *foreground
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -60,6 +62,21 @@ func main() {
 	default:
 		installOrOpen(dir)
 	}
+}
+
+// tokenEnv: the upload token can come from the environment, which other users of the computer can't read.
+const tokenEnv = "HOTSDASH_TOKEN"
+
+// uploadToken is the token for -server: --token if given (with a warning, as command lines show in the process list),
+// else tokenEnv. It's removed from the environment so the programs started from here (the browser) don't get it.
+func uploadToken(fromFlag string, warn io.Writer) string {
+	fromEnv := os.Getenv(tokenEnv)
+	_ = os.Unsetenv(tokenEnv)
+	if fromFlag == "" {
+		return fromEnv
+	}
+	fmt.Fprintf(warn, "Warning: other programs on this computer can see a token given with --token. Set %s instead.\n", tokenEnv)
+	return fromFlag
 }
 
 // runTerminal: the uploader in this terminal, until Ctrl+C.
