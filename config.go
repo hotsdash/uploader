@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -90,15 +91,24 @@ func parseSettings(b []byte) (*Config, error) {
 }
 
 // appDir is where config, state and the log live: %APPDATA%\hots-dash on Windows, ~/.config/hots-dash on Linux,
-// ~/Library/Application Support/hots-dash on a Mac.
+// ~/Library/Application Support/hots-dash on a Mac. On Linux and Macs only you can read it.
 func appDir() string {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		base, _ = os.UserHomeDir()
 	}
 	d := filepath.Join(base, "hots-dash")
-	_ = os.MkdirAll(d, 0o755)
+	_ = os.MkdirAll(d, 0o700)
+	makePrivate(d, 0o700) // one made by an earlier version
 	return d
+}
+
+// makePrivate takes other users' access away from p, as far as it can. Not on Windows, where %APPDATA% is already
+// the user's own.
+func makePrivate(p string, mode os.FileMode) {
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(p, mode)
+	}
 }
 
 func loadSaved(dir string) *Config {
@@ -171,9 +181,11 @@ func newLogger(dir string, extra io.Writer) *log.Logger {
 		_ = os.Rename(p, p+".old")
 	}
 	var w io.Writer = io.Discard
-	if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+	if f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
 		w = f
 	}
+	makePrivate(p, 0o600)
+	makePrivate(p+".old", 0o600)
 	if extra != nil {
 		w = io.MultiWriter(w, extra)
 	}

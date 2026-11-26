@@ -50,7 +50,7 @@ func main() {
 	if dir == "" {
 		dir = appDir()
 	}
-	_ = os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o700) // a -data folder that already exists is left as it is
 
 	switch {
 	case *uninstall:

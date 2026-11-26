@@ -65,6 +65,8 @@ hots-dash-uploader -server https://your.dashboard
 | program | `%LOCALAPPDATA%\Programs\hots-dash\` | `~/.local/bin/hots-dash-uploader` | app folder (`~/Library/Application Support/hots-dash`) |
 | settings (`config.json`), state, log | `%APPDATA%\hots-dash` | `~/.config/hots-dash` | `~/Library/Application Support/hots-dash` |
 
+On Linux and macOS the settings folder and the log are readable by you only.
+
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
 
 On Linux the game runs in Wine, so the check on who's in a game looks for the lobby file inside the Wine prefix your
