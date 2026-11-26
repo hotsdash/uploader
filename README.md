@@ -82,7 +82,7 @@ and each address no more than once a day. To use such an address, start the uplo
 
 ## Build
 
-Go 1.26 or newer; no other tools.
+Go 1.26 or newer; no other tools to install.
 
 ```sh
 go vet ./...
@@ -90,6 +90,10 @@ go test ./...
 go build .                    # for this computer
 scripts/build.sh              # every platform into dist/ (VERSION=2026.11.25.1430 to set the version)
 ```
+
+`scripts/build.sh` gives the Windows program its icon and file details (company, product, description, version; see
+`winres/winres.json`) with [go-winres](https://github.com/tc-hib/go-winres), at a pinned version that `go run`
+downloads the first time. A plain `go build` leaves them out.
 
 Versions are the build time in UTC, `YYYY.MM.DD.HHMM`; a bigger one is newer. A build from source is version `dev`,
 which never updates itself.

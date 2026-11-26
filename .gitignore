@@ -1,4 +1,6 @@
 dist/
+# made by scripts/build.sh for the Windows build
+*.syso
 *.key
 *.pem
 .env*

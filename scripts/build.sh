@@ -55,7 +55,15 @@ if [ -n "$UPLOADER_BACKUP_PUBKEY" ]; then
 fi
 export CGO_ENABLED=0
 FLAGS="-s -w -X main.version=$VERSION -X main.updateKey=$PUB"
+# The Windows program's icon and file details (winres/winres.json, with VERSION as its version). go build links any
+# .syso it finds here, so it is made just for this one build and removed again, also when the build fails.
+SYSO=rsrc_windows_amd64.syso
+trap 'rm -f "$SYSO"' EXIT
+trap 'exit 1' HUP INT TERM
+GOOS= GOARCH= go run github.com/tc-hib/go-winres@v0.3.3 make --in winres/winres.json --arch amd64 --out rsrc \
+  --file-version "$VERSION" --product-version "$VERSION"
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui $FLAGS" -o dist/hots-dash-uploader.exe .
+rm "$SYSO"
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-amd64 .
 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/hots-dash-uploader-linux-arm64 .
 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "$FLAGS" -o dist/darwin-arm64 .
