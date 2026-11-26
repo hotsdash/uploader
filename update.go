@@ -29,8 +29,8 @@ import (
 // updateKey: the public keys (hex, comma-separated) an update may be signed with, set at build time
 // (-X main.updateKey=…, see build.sh and the release workflow): the release key, then a backup kept apart from it, so
 // a lost or leaked key can be replaced. With them, an update is only run when its signature checks out, so a dashboard
-// (or anyone between it and this computer) can't hand out a program hots-dash didn't sign. A copy built without one
-// (from source, or a self-hosted image built without the signing key) only checks the size and hash the dashboard gives.
+// (or anyone between it and this computer) can't hand out a program hots-dash didn't sign. A copy with a version but
+// no key never updates itself; only a build from source ("dev") goes by the size and hash alone.
 var updateKey = ""
 
 // applyUpdate starts the downloaded program so it can replace this one (set by the installed copy on Windows, Linux
@@ -109,6 +109,11 @@ func updateURL(v *latestInfo, server string) string {
 
 var errInsecureUpdate = errors.New("this dashboard's address is plain http, so the uploader won't update itself from it: download the new version from the dashboard")
 
+var errNoUpdateKey = errors.New("this copy has no update key: download the new version from the dashboard")
+
+// unkeyed: a release or other versioned build with no key to check an update's signature against.
+func unkeyed() bool { return version != "dev" && updateKey == "" }
+
 // newer: is latest a newer build than have? A build from source ("dev") never updates itself.
 func newer(have, latest string) bool {
 	return have != "dev" && have != "" && latest != "" && latest > have
@@ -118,7 +123,7 @@ func (a *Agent) UpdateState() UpdateState {
 	a.upd.mu.Lock()
 	defer a.upd.mu.Unlock()
 	secure := secureServer(a.Config().Server)
-	s := UpdateState{Version: version, Latest: a.upd.latest, Available: newer(version, a.upd.latest), CanApply: applyUpdate != nil && secure,
+	s := UpdateState{Version: version, Latest: a.upd.latest, Available: newer(version, a.upd.latest), CanApply: applyUpdate != nil && secure && !unkeyed(),
 		Auto: !a.Config().NoAutoUpdate, Busy: a.upd.busy, Error: a.upd.err, MoveTo: a.upd.moveTo, Insecure: !secure}
 	if !a.upd.checked.IsZero() {
 		s.Checked = a.upd.checked.Format(time.RFC3339)
@@ -254,6 +259,9 @@ func secureServer(server string) bool {
 func (a *Agent) download(v *latestInfo) (string, error) {
 	if !secureServer(a.Config().Server) {
 		return "", errInsecureUpdate
+	}
+	if unkeyed() {
+		return "", errNoUpdateKey
 	}
 	d := filepath.Join(a.dir, "update")
 	_ = os.RemoveAll(d)
@@ -435,7 +443,7 @@ func (a *Agent) checkUpdate() {
 	if err != nil || !newer(version, v.Version) {
 		return
 	}
-	if !a.Config().NoAutoUpdate && applyUpdate != nil && secureServer(a.Config().Server) {
+	if !a.Config().NoAutoUpdate && applyUpdate != nil && secureServer(a.Config().Server) && !unkeyed() {
 		_ = a.UpdateNow()
 		return
 	}
@@ -449,7 +457,11 @@ func (a *Agent) checkUpdate() {
 			a.OnUpdate(v.Version)
 		}
 		if a.Notify != nil {
-			a.Notify("hots-dash uploader: update ready", "Version "+v.Version+" is ready. Open Settings (or the tray menu) and choose Update now.", "")
+			how := "Open Settings (or the tray menu) and choose Update now."
+			if unkeyed() {
+				how = "Download it from the dashboard."
+			}
+			a.Notify("hots-dash uploader: update ready", "Version "+v.Version+" is ready. "+how, "")
 		}
 	}
 }
