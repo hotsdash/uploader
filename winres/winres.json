@@ -1,0 +1,22 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": "../icon.ico"
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "info": {
+          "0409": {
+            "CompanyName": "hots-dash",
+            "FileDescription": "hots-dash uploader",
+            "InternalName": "hots-dash-uploader",
+            "OriginalFilename": "hots-dash-uploader.exe",
+            "ProductName": "hots-dash uploader"
+          }
+        }
+      }
+    }
+  }
+}
