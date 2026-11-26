@@ -128,7 +128,7 @@ A release (`Actions → Release`, run by hand, from `main`) is three jobs, each 
 1. **build** tests, then builds everything with `-trimpath` and the two public keys. No secrets.
 2. **sign** runs in the `release` environment, the only place the `UPLOADER_SIGNING_KEY` secret can be read (a base64
    seed made by `go run ./tools/sign keygen`). It signs each program and makes the archives and `latest.json`.
-3. **publish**, the only job that can write to the repository, creates the release.
+3. **publish**, the only job that can write to the repository, records the build provenance and creates the release.
 
 It fails without the secret or either public key, and publishes, under the tag `v<version>`:
 
@@ -155,5 +155,15 @@ The platform is the program's key in `latest.json`: `windows`, `linux-amd64`, `l
 To check a download yourself: compare its SHA-256 with `latest.json`, and verify a signature over
 `updatesig.Message(version, sha256)` or `updatesig.MessageV2(version, sha256, platform)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
 built into every release's program, first in `main.updateKey`).
+
+Releases made while the repository is public also carry build provenance: GitHub's signed record of which workflow run,
+at which commit, produced each file. To check a downloaded file with the GitHub CLI:
+
+```sh
+gh attestation verify <file> --repo hotsdash/uploader
+```
+
+A release made while the repository was private has none, and the command says so by failing. Installed copies don't
+look at it: they go by the signatures above.
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.

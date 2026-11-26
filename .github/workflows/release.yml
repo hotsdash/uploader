@@ -181,11 +181,31 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and its tag with the built-in GITHUB_TOKEN (no personal token)
+      id-token: write # say which workflow run this is, to sign the build provenance
+      attestations: write # store the build provenance
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signed
           path: dist
+
+      # Build provenance: a signed record that these files came out of this workflow at this commit
+      # (`gh attestation verify`). Before publishing, so a release doesn't go out without it. Only while the repository
+      # is public: on a private one, attestations need GitHub Enterprise Cloud.
+      - name: Attest the release files
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          # the same files as the release below
+          subject-path: |
+            dist/hots-dash-uploader.exe
+            dist/hots-dash-uploader-linux-amd64
+            dist/hots-dash-uploader-linux-amd64.tar.gz
+            dist/hots-dash-uploader-linux-arm64
+            dist/hots-dash-uploader-linux-arm64.tar.gz
+            dist/hots-dash-uploader-macos
+            dist/hots-dash-uploader-macos.tar.gz
+            dist/latest.json
 
       - name: Publish the release
         env:
