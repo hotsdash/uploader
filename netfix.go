@@ -13,6 +13,8 @@ package main
 // lookup (the HTTPS record), or a built-in one that Cloudflare replaces with its current key on first
 // contact if it is out of date.
 //
+// This is only done for hotsdash.com, and can be switched off in Settings (Agent.goAround).
+//
 // The dashboard's real certificate is still checked for the real name, so this only ever reaches the
 // genuine dashboard. If none of it works, the error says in plain words that the network is in the way,
 // with what was tried, instead of the raw Go error.
@@ -85,6 +87,8 @@ type fallbackTransport struct {
 	direct  *http.Transport // dials the pinned addresses
 	resolve func(ctx context.Context, host string) (route, error)
 	now     func() time.Time
+	// allow: which hosts may be gone around; every other request goes the normal way only. nil allows none.
+	allow func(host string) bool
 
 	mu   sync.Mutex
 	pins map[string]pin // host -> route found when the normal one was intercepted
@@ -189,7 +193,7 @@ func (f *fallbackTransport) unpin(host string) {
 
 func (f *fallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := req.URL.Hostname()
-	if req.URL.Scheme != "https" || net.ParseIP(host) != nil {
+	if req.URL.Scheme != "https" || net.ParseIP(host) != nil || f.allow == nil || !f.allow(host) {
 		return f.base.RoundTrip(req)
 	}
 	if _, ok := f.pinned(host); ok {

@@ -17,6 +17,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,6 +54,9 @@ type Config struct {
 	NoGameNotes bool `json:"noGameNotes,omitempty"`
 	// NoAutoUpdate: say when a new version is ready instead of updating by itself
 	NoAutoUpdate bool `json:"noAutoUpdate,omitempty"`
+	// NoNetworkWorkaround: don't go around a network that answers for hotsdash.com (netfix.go). Off by default,
+	// so settings saved before it carry on as they did
+	NoNetworkWorkaround bool `json:"noNetworkWorkaround,omitempty"`
 	// MoveDismissed: another site the dashboard said it moved to, which the person chose not to switch to
 	MoveDismissed   string `json:"moveDismissed,omitempty"`
 	MoveDismissedAt int64  `json:"moveDismissedAt,omitempty"` // when (unix seconds): suggested again after moveSnooze
@@ -179,6 +183,7 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 	tr := newFallbackTransport() // copes with networks that intercept the dashboard (netfix.go)
 	a := &Agent{cfg: cfg, dir: dir, log: logger, client: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 		files: map[string]*fileState{}, kick: make(chan struct{}, 1), lobbySeen: map[string]time.Time{}}
+	tr.allow = a.goAround
 	tr.OnFallback = func(host string, ips []string, ech bool) {
 		how := ""
 		if ech {
@@ -186,8 +191,16 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 		}
 		a.event("Your network answered for %s instead of the dashboard: going around it via %s%s", host, strings.Join(ips, ", "), how)
 	}
+	a.client.CheckRedirect = apiRedirect
 	a.loadState()
 	return a
+}
+
+// goAround: whether the network workaround may be used for a host: only the public dashboard's, and only while
+// it isn't switched off in Settings.
+func (a *Agent) goAround(host string) bool {
+	u, err := url.Parse(defaultServer)
+	return err == nil && strings.EqualFold(host, u.Hostname()) && !a.Config().NoNetworkWorkaround
 }
 
 func (a *Agent) Config() Config {
@@ -355,6 +368,36 @@ func (a *Agent) callAnon(path string, in, out any) error {
 	return a.do("POST", path, bytes.NewReader(b), "application/json", out, false)
 }
 
+// maxResponseBytes: far more than any of the dashboard's answers; a bigger one is cut off and fails to decode.
+const maxResponseBytes = 8 << 20
+
+// apiRedirect: where an API call, which carries the token, may be redirected (at most 5 times): the same address,
+// or from http to https on it. Go's own rule keeps the token for the same machine name even over plain http.
+func apiRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > 5 {
+		return errors.New("too many redirects")
+	}
+	from, to := via[len(via)-1].URL, req.URL
+	port := func(u *url.URL) string {
+		switch {
+		case u.Port() != "":
+			return u.Port()
+		case u.Scheme == "https":
+			return "443"
+		}
+		return "80"
+	}
+	if strings.EqualFold(from.Hostname(), to.Hostname()) {
+		if to.Scheme == from.Scheme && port(to) == port(from) {
+			return nil
+		}
+		if from.Scheme == "http" && to.Scheme == "https" && (port(to) == port(from) || port(from) == "80" && port(to) == "443") {
+			return nil
+		}
+	}
+	return fmt.Errorf("the dashboard redirected to %s://%s, which isn't allowed", to.Scheme, to.Host)
+}
+
 func (a *Agent) do(method, path string, body io.Reader, contentType string, out any, withToken bool) error {
 	cfg := a.Config()
 	req, err := http.NewRequest(method, cfg.Server+"/api/"+path, body)
@@ -392,7 +435,7 @@ func (a *Agent) do(method, path string, body io.Reader, contentType string, out 
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(res.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(res.Body, maxResponseBytes)).Decode(out)
 }
 
 func (a *Agent) postJSON(path string, in, out any) error {

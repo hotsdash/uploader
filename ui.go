@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -41,6 +42,46 @@ func expandHome(p string) string {
 		}
 	}
 	return p
+}
+
+// tooBroad says what p is when it's far more than a folder of replays or saves: a whole disk, the home folder or
+// Documents (also OneDrive's). Everything under a chosen folder is read, so these are refused. "" means p is fine.
+func tooBroad(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	// the same folder by name, or by another name for it (a link, other capitals where those don't matter)
+	is := func(q string) bool {
+		if p == filepath.Clean(q) {
+			return true
+		}
+		a, err1 := os.Stat(p)
+		b, err2 := os.Stat(q)
+		return err1 == nil && err2 == nil && os.SameFile(a, b)
+	}
+	if rest := p[len(filepath.VolumeName(p)):]; rest == "" || rest == string(filepath.Separator) || is(filepath.VolumeName(p)+string(filepath.Separator)) {
+		return "a whole disk"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	if is(home) {
+		return "your whole home folder"
+	}
+	docs := []string{filepath.Join(home, "Documents")}
+	for _, env := range []string{"OneDrive", "OneDriveConsumer", "OneDriveCommercial"} {
+		if od := os.Getenv(env); od != "" {
+			docs = append(docs, filepath.Join(od, "Documents"))
+		}
+	}
+	more, _ := filepath.Glob(filepath.Join(home, "OneDrive*", "Documents"))
+	for _, d := range append(docs, more...) {
+		if is(d) {
+			return "your whole Documents folder"
+		}
+	}
+	return ""
 }
 
 // systemText: the settings page's wording that depends on the system (the page is written for Windows).
@@ -160,6 +201,7 @@ func StartUI(a *Agent, prev *uiHandoff) (*ui, error) {
 	mux.HandleFunc("/api/live", u.api(u.live))
 	mux.HandleFunc("/api/rejoin", u.api(u.rejoin))
 	mux.HandleFunc("/api/games", u.api(u.games))
+	mux.HandleFunc("/api/network", u.api(u.network))
 	mux.HandleFunc("/api/autostart", u.api(u.autostart))
 	mux.HandleFunc("/api/open", u.api(u.open))
 	mux.HandleFunc("/api/signin", u.api(u.signIn))
@@ -196,8 +238,13 @@ func (u *ui) guard(h http.Handler) http.Handler {
 	})
 }
 
+// keyOK: the secret, compared in constant time so how long a wrong one takes says nothing about it.
+func (u *ui) keyOK(k string) bool {
+	return subtle.ConstantTimeCompare([]byte(k), []byte(u.key)) == 1
+}
+
 func (u *ui) page(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" || r.URL.Query().Get("k") != u.key {
+	if r.URL.Path != "/" || !u.keyOK(r.URL.Query().Get("k")) {
 		http.Error(w, systemText()["forbidden"], http.StatusForbidden)
 		return
 	}
@@ -208,7 +255,7 @@ func (u *ui) page(w http.ResponseWriter, r *http.Request) {
 
 func (u *ui) api(f func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Key") != u.key {
+		if !u.keyOK(r.Header.Get("X-Key")) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -321,6 +368,7 @@ func (u *ui) state(r *http.Request) (any, error) {
 		"rejoin":    map[string]any{"accounts": liveRows, "others": otherRows, "missing": len(liveMissing(liveAccts)), "set": len(u.a.rejoinDirs())},
 		"games":     map[string]any{"on": !cfg.NoGameNotes},
 		"autostart": map[string]bool{"supported": auto, "on": autoOn},
+		"network":   map[string]any{"on": !cfg.NoNetworkWorkaround},
 		"system":    systemText(),
 		"recent":    u.a.Recent(),
 		"update":    u.a.UpdateState(),
@@ -389,6 +437,10 @@ func (u *ui) folders(r *http.Request) (any, error) {
 		path = filepath.Clean(path)
 		if s, err := os.Stat(path); err != nil || !s.IsDir() {
 			return nil, fmt.Errorf("can't open %s", path)
+		}
+		if what := tooBroad(path); what != "" {
+			return nil, fmt.Errorf("%s is %s: choose the game's Accounts folder instead (%s), or the folder your backups are in",
+				path, what, filepath.Join("Documents", "Heroes of the Storm", "Accounts"))
 		}
 		u.a.Update(func(c *Config) {
 			for _, f := range c.Folders {
@@ -500,9 +552,16 @@ func (u *ui) rejoin(r *http.Request) (any, error) {
 		path = p
 		fallthrough
 	case "add":
+		if path == "" {
+			return nil, errors.New("choose a folder")
+		}
 		path = filepath.Clean(path)
 		if err := usable(path); err != nil {
 			return nil, err
+		}
+		if what := tooBroad(path); what != "" {
+			return nil, fmt.Errorf("%s is %s: choose the account's %s folder instead, inside the game's Accounts folder",
+				path, what, filepath.Join("Saves", "Rejoin"))
 		}
 		set(in.Toon, path)
 		u.a.event("Live picks: using %s", path)
@@ -547,6 +606,16 @@ func (u *ui) games(r *http.Request) (any, error) {
 		return nil, err
 	}
 	u.a.Update(func(c *Config) { c.NoGameNotes = !in.On })
+	return map[string]bool{"ok": true}, nil
+}
+
+// network: the workaround for networks that block hotsdash.com (netfix.go), on or off.
+func (u *ui) network(r *http.Request) (any, error) {
+	var in struct{ On bool }
+	if err := body(r, &in); err != nil {
+		return nil, err
+	}
+	u.a.Update(func(c *Config) { c.NoNetworkWorkaround = !in.On })
 	return map[string]bool{"ok": true}, nil
 }
 
