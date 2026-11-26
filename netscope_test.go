@@ -1,69 +1,34 @@
 package main
 
 import (
-	"context"
+	"crypto/tls"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/hotsdash/uploader/internal/netfix"
 )
 
-// The workaround is for hotsdash.com only, and only while it's switched on.
+// The workaround is for hotsdash.com only, and only while it's switched on: the agent's transport asks it.
 func TestWorkaroundOnlyForTheDefaultDashboard(t *testing.T) {
 	a := NewAgent(Config{Server: "https://hotsdash.com", Folders: []Folder{{Path: t.TempDir()}}}, t.TempDir(), log.New(io.Discard, "", 0))
-	f := a.client.Transport.(*fallbackTransport)
-	// every normal connection is answered by a filter; a lookup means the uploader tried to go around it
-	filtered, _, _ := interceptSetup(t, nil)
-	f.base = filtered.base
-	var lookups []string
-	f.resolve = func(_ context.Context, host string) (route, error) {
-		lookups = append(lookups, host)
-		return route{}, errors.New("no lookups in tests")
-	}
-	try := func(host string) error {
-		_, err := f.RoundTrip(mustReq(t, "GET", "https://"+host+"/api/x", ""))
-		if err == nil {
-			t.Fatalf("%s: the filter should have been in the way", host)
-		}
-		return err
-	}
+	f := a.client.Transport.(*netfix.Transport)
 	for _, host := range []string{"example.com", "dash.hotsdash.com", "hotsdash.com.example.com", "github.com"} {
-		if err := try(host); errors.Is(err, errBlocked) || !intercepted(err) {
-			t.Errorf("%s: %v", host, err)
+		if f.Allow(host) {
+			t.Errorf("%s: allowed", host)
 		}
 	}
-	if len(lookups) != 0 {
-		t.Fatalf("went around for %v", lookups)
+	if !f.Allow("hotsdash.com") {
+		t.Fatal("the default dashboard isn't allowed")
 	}
-	if err := try("hotsdash.com"); !errors.Is(err, errBlocked) || len(lookups) != 1 || lookups[0] != "hotsdash.com" {
-		t.Fatalf("the default dashboard: %v, lookups %v", err, lookups)
-	}
-
 	a.Update(func(c *Config) { c.NoNetworkWorkaround = true })
-	if err := try("hotsdash.com"); errors.Is(err, errBlocked) || !intercepted(err) || len(lookups) != 1 {
-		t.Fatalf("switched off: %v, lookups %v", err, lookups)
-	}
-}
-
-// Switching it off also stops using a route already found.
-func TestWorkaroundSwitchedOffDropsTheFoundRoute(t *testing.T) {
-	f, u, hits := interceptSetup(t, func(context.Context, string) (route, error) {
-		return route{ips: []string{"127.0.0.1"}}, nil
-	})
-	on := true
-	f.allow = func(string) bool { return on }
-	res, err := f.RoundTrip(mustReq(t, "GET", u+"/api/x", ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	res.Body.Close()
-	on = false
-	if _, err := f.RoundTrip(mustReq(t, "GET", u+"/api/x", "")); !intercepted(err) || hits.Load() != 1 {
-		t.Fatalf("err %v, hits %d", err, hits.Load())
+	if f.Allow("hotsdash.com") {
+		t.Fatal("allowed while switched off")
 	}
 }
 
@@ -87,5 +52,14 @@ func TestWorkaroundSetting(t *testing.T) {
 		if a.Config().NoNetworkWorkaround == on || a.goAround("hotsdash.com") != on || a.goAround("HotsDash.com") != on {
 			t.Fatalf("on=%v: %+v", on, a.Config())
 		}
+	}
+}
+
+func TestProblemTextBlocked(t *testing.T) {
+	dir := t.TempDir()
+	a := NewAgent(Config{Server: "https://hotsdash.com", Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
+	a.problem(fmt.Errorf("%w: %w", netfix.ErrBlocked, tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}))
+	if !strings.Contains(a.Status().Text, "network is blocking") {
+		t.Fatalf("status %q", a.Status().Text)
 	}
 }

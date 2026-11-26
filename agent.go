@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/netfix"
 )
 
 var version = "dev"
@@ -41,7 +43,7 @@ type Config struct {
 	NoGameNotes bool `json:"noGameNotes,omitempty"`
 	// NoAutoUpdate: say when a new version is ready instead of updating by itself
 	NoAutoUpdate bool `json:"noAutoUpdate,omitempty"`
-	// NoNetworkWorkaround: don't go around a network that answers for hotsdash.com (netfix.go). Off by default,
+	// NoNetworkWorkaround: don't go around a network that answers for hotsdash.com (internal/netfix). Off by default,
 	// so settings saved before it carry on as they did
 	NoNetworkWorkaround bool `json:"noNetworkWorkaround,omitempty"`
 	// MoveDismissed: another site the dashboard said it moved to, which the person chose not to switch to
@@ -167,10 +169,10 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 		cfg.Replays = ""
 	}
 	cfg.Lobby = lobbyDir(runtime.GOOS, cfg.Lobby, cfg.Folders)
-	tr := newFallbackTransport() // copes with networks that intercept the dashboard (netfix.go)
+	tr := netfix.New() // copes with networks that intercept the dashboard (internal/netfix)
 	a := &Agent{cfg: cfg, dir: dir, log: logger, client: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 		files: map[string]*fileState{}, kick: make(chan struct{}, 1), lobbySeen: map[string]time.Time{}}
-	tr.allow = a.goAround
+	tr.Allow = a.goAround
 	tr.OnFallback = func(host string, ips []string, ech bool) {
 		how := ""
 		if ech {

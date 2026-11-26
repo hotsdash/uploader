@@ -47,6 +47,15 @@ func redirectSite(t *testing.T, secure, plain http.HandlerFunc) (a *Agent, seen 
 	}
 }
 
+func mustReq(t *testing.T, method, u, body string) *http.Request {
+	t.Helper()
+	r, err := http.NewRequest(method, u, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 func okJSON(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `{"ok":true}`) }
 
 func redirectTo(u string) http.HandlerFunc {

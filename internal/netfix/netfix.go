@@ -1,10 +1,11 @@
-package main
+// Package netfix gets the uploader through networks that answer for the dashboard themselves.
+package netfix
 
 // Some networks send hotsdash.com somewhere that isn't the dashboard: ISP web filters, router or
 // Pi-hole rules, some VPNs and antivirus web protection answer the HTTPS port with a plain-HTTP block
 // page, and Go fails with "tls: first record does not look like a TLS handshake".
 //
-// Those filters work one of two ways. Some lie in DNS; for those, fallbackTransport looks the name up
+// Those filters work one of two ways. Some lie in DNS; for those, Transport looks the name up
 // over DNS-over-HTTPS (Cloudflare, then Google), reached by IP so the local DNS isn't asked, and
 // connects to the address it gets. Others read the name the uploader sends at the start of the TLS
 // handshake (SNI) and step in whatever the address; for those, the fallback connection uses Encrypted
@@ -13,7 +14,7 @@ package main
 // lookup (the HTTPS record), or a built-in one that Cloudflare replaces with its current key on first
 // contact if it is out of date.
 //
-// This is only done for hotsdash.com, and can be switched off in Settings (Agent.goAround).
+// This is only done for hotsdash.com, and can be switched off in Settings (Allow, set by the agent).
 //
 // The dashboard's real certificate is still checked for the real name, so this only ever reaches the
 // genuine dashboard. If none of it works, the error says in plain words that the network is in the way,
@@ -45,8 +46,8 @@ var echSeed = map[string]string{
 	"hotsdash.com": "AEX+DQBBAgAgACDt7x3BsJGUM8EGcp3IxkIFKyy/Mgk6MLzoEE2gWqtmcAAEAAEAAQASY2xvdWRmbGFyZS1lY2guY29tAAA=",
 }
 
-// errBlocked is wrapped by the error returned when the network keeps answering for the dashboard.
-var errBlocked = errors.New("network blocking the dashboard")
+// ErrBlocked is wrapped by the error returned when the network keeps answering for the dashboard.
+var ErrBlocked = errors.New("network blocking the dashboard")
 
 type blockedError struct {
 	host string
@@ -63,7 +64,7 @@ func (e *blockedError) Error() string {
 		"(often an internet provider's web filter, a VPN or antivirus web protection). "+
 		"Allow %s there, or switch your DNS to 1.1.1.1. (%s)", e.host, e.host, detail)
 }
-func (e *blockedError) Unwrap() []error { return []error{errBlocked, e.err} }
+func (e *blockedError) Unwrap() []error { return []error{ErrBlocked, e.err} }
 
 // intercepted: something answered the HTTPS port without speaking TLS.
 func intercepted(err error) bool {
@@ -82,13 +83,13 @@ type pin struct {
 	until time.Time
 }
 
-type fallbackTransport struct {
+type Transport struct {
 	base    http.RoundTripper
 	direct  *http.Transport // dials the pinned addresses
 	resolve func(ctx context.Context, host string) (route, error)
 	now     func() time.Time
-	// allow: which hosts may be gone around; every other request goes the normal way only. nil allows none.
-	allow func(host string) bool
+	// Allow: which hosts may be gone around; every other request goes the normal way only. nil allows none.
+	Allow func(host string) bool
 
 	mu   sync.Mutex
 	pins map[string]pin // host -> route found when the normal one was intercepted
@@ -96,15 +97,15 @@ type fallbackTransport struct {
 	OnFallback func(host string, ips []string, ech bool) // for the uploader's log
 }
 
-func newFallbackTransport() *fallbackTransport {
+func New() *Transport {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	return newFallbackTransportWith(base, nil, lookupRoute)
 }
 
 // tlsCfg is for tests (a test certificate); nil uses the system's.
 func newFallbackTransportWith(base http.RoundTripper, tlsCfg *tls.Config,
-	resolve func(context.Context, string) (route, error)) *fallbackTransport {
-	f := &fallbackTransport{base: base, resolve: resolve, now: time.Now, pins: map[string]pin{}}
+	resolve func(context.Context, string) (route, error)) *Transport {
+	f := &Transport{base: base, resolve: resolve, now: time.Now, pins: map[string]pin{}}
 	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
 	f.direct = &http.Transport{
 		Proxy:               nil, // a broken proxy setting can be the very thing in the way
@@ -135,7 +136,7 @@ func newFallbackTransportWith(base http.RoundTripper, tlsCfg *tls.Config,
 	return f
 }
 
-func (f *fallbackTransport) handshake(ctx context.Context, d *net.Dialer, network, addr, host string,
+func (f *Transport) handshake(ctx context.Context, d *net.Dialer, network, addr, host string,
 	ech []byte, base *tls.Config) (net.Conn, error) {
 	for attempt := 0; ; attempt++ {
 		raw, err := d.DialContext(ctx, network, addr)
@@ -174,7 +175,7 @@ func (f *fallbackTransport) handshake(ctx context.Context, d *net.Dialer, networ
 	}
 }
 
-func (f *fallbackTransport) pinned(host string) (pin, bool) {
+func (f *Transport) pinned(host string) (pin, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p, ok := f.pins[host]
@@ -185,15 +186,15 @@ func (f *fallbackTransport) pinned(host string) (pin, bool) {
 	return p, true
 }
 
-func (f *fallbackTransport) unpin(host string) {
+func (f *Transport) unpin(host string) {
 	f.mu.Lock()
 	delete(f.pins, host)
 	f.mu.Unlock()
 }
 
-func (f *fallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (f *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := req.URL.Hostname()
-	if req.URL.Scheme != "https" || net.ParseIP(host) != nil || f.allow == nil || !f.allow(host) {
+	if req.URL.Scheme != "https" || net.ParseIP(host) != nil || f.Allow == nil || !f.Allow(host) {
 		return f.base.RoundTrip(req)
 	}
 	if _, ok := f.pinned(host); ok {

@@ -1,11 +1,9 @@
-package main
+package netfix
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +16,7 @@ import (
 
 // a network that answers the dashboard's HTTPS port with a plain-HTTP block page,
 // and the real dashboard (a TLS server) reachable at an address only DNS-over-HTTPS knows
-func interceptSetup(t *testing.T, resolve func(context.Context, string) (route, error)) (*fallbackTransport, string, *atomic.Int32) {
+func interceptSetup(t *testing.T, resolve func(context.Context, string) (route, error)) (*Transport, string, *atomic.Int32) {
 	t.Helper()
 	filter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "blocked by your provider")
@@ -42,7 +40,7 @@ func interceptSetup(t *testing.T, resolve func(context.Context, string) (route, 
 		},
 	}
 	f := newFallbackTransportWith(base, cfg, resolve)
-	f.allow = func(string) bool { return true }
+	f.Allow = func(string) bool { return true }
 	// the test certificate is for example.com
 	return f, "https://example.com:" + port, &hits
 }
@@ -112,7 +110,7 @@ func TestFallbackFailsInPlainWords(t *testing.T) {
 		return route{}, errors.New("doh unreachable")
 	})
 	_, err := (&http.Client{Transport: f}).Get(u + "/api/x")
-	if !errors.Is(err, errBlocked) {
+	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("want errBlocked, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "Your network isn't letting the uploader reach example.com") ||
@@ -132,7 +130,7 @@ func TestNormalNetworkUntouched(t *testing.T) {
 		t.Fatal("no lookup expected")
 		return route{}, nil
 	})
-	f.allow = func(string) bool { return true }
+	f.Allow = func(string) bool { return true }
 	res, err := (&http.Client{Transport: f}).Get(real.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -156,15 +154,6 @@ func TestParseDoH(t *testing.T) {
 	}
 	if _, err := parseDoH(strings.NewReader(`{"Status":3}`), "hotsdash.com"); err == nil {
 		t.Fatal("NXDOMAIN should be an error")
-	}
-}
-
-func TestProblemTextBlocked(t *testing.T) {
-	dir := t.TempDir()
-	a := NewAgent(Config{Server: "https://hotsdash.com", Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
-	a.problem(&blockedError{host: "hotsdash.com", err: tls.RecordHeaderError{Msg: "first record does not look like a TLS handshake"}})
-	if !strings.Contains(a.Status().Text, "network is blocking") {
-		t.Fatalf("status %q", a.Status().Text)
 	}
 }
 

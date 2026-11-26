@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/netfix"
 )
 
 // ---------- state ----------
@@ -546,7 +548,7 @@ func (a *Agent) problem(err error) {
 	text := "Can't reach the dashboard"
 	if errors.Is(err, ErrToken) {
 		text = "Sign-in not accepted: sign in again in Settings"
-	} else if errors.Is(err, errBlocked) {
+	} else if errors.Is(err, netfix.ErrBlocked) {
 		text = "Your network is blocking the dashboard: see Recent activity"
 	}
 	if prev := a.Status(); !prev.Problem || prev.Text != text {

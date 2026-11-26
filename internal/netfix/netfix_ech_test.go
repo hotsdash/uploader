@@ -1,4 +1,4 @@
-package main
+package netfix
 
 import (
 	"bytes"
@@ -122,7 +122,7 @@ func TestFallbackHidesNameWithECH(t *testing.T) {
 			f := newFallbackTransportWith(base, tlsCfg, func(context.Context, string) (route, error) {
 				return route{ips: []string{"127.0.0.1"}, ech: clientList}, nil
 			})
-			f.allow = func(string) bool { return true }
+			f.Allow = func(string) bool { return true }
 			var usedECH bool
 			f.OnFallback = func(_ string, _ []string, ech bool) { usedECH = ech }
 			c := &http.Client{Transport: f}
