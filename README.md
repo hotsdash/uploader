@@ -72,8 +72,10 @@ release file here (the uploader follows redirects only to https on the dashboard
 `*.githubusercontent.com`). Whoever serves the bytes, the copy refuses the update unless all of these hold:
 
 - the size and SHA-256 match what the dashboard announced;
-- the Ed25519 signature over the version and that SHA-256 (`updatesig.Message`) verifies against one of the public
-  keys built into the running program (`main.updateKey`);
+- an Ed25519 signature over the version and that SHA-256 verifies against one of the public keys built into the
+  running program (`main.updateKey`). When the dashboard passes on `signatureV2`, which names the platform as well
+  (`updatesig.MessageV2`), that one has to verify for the running system; without it, `signature`
+  (`updatesig.Message`) does;
 - the file is a program for this system.
 
 So the dashboard decides what's "latest" (and can hold a release back or roll back), but can't hand out a program that
@@ -114,14 +116,23 @@ publishes, under the tag `v<version>`:
 | `hots-dash-uploader.exe` | Windows: the program, and the first download |
 | `hots-dash-uploader-linux-amd64`, `-linux-arm64`, `-macos` | the bare programs the updater fetches |
 | `hots-dash-uploader-linux-amd64.tar.gz`, `-linux-arm64.tar.gz`, `-macos.tar.gz` | first downloads: the program in a folder, made the same every time (fixed dates and owner) |
-| `latest.json` | the version and, per system, the program's name, size, SHA-256 and Ed25519 signature, and the download file |
+| `latest.json` | the version and, per system, the program's name, size, SHA-256 and Ed25519 signatures, and the download file |
 
 ```json
-{"version":"2026.11.25.1430","files":{"windows":{"program":{"name":"hots-dash-uploader.exe","size":0,"sha256":"…","signature":"…"},"download":"hots-dash-uploader.exe"}, "linux-amd64":{…}, "linux-arm64":{…}, "macos":{…}}}
+{"version":"2026.11.25.1430","files":{"windows":{"program":{"name":"hots-dash-uploader.exe","size":0,"sha256":"…","signature":"…","signatureV2":"…"},"download":"hots-dash-uploader.exe"}, "linux-amd64":{…}, "linux-arm64":{…}, "macos":{…}}}
 ```
 
-To check a download yourself: compare its SHA-256 with `latest.json`, and verify the signature over
-`updatesig.Message(version, sha256)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
+Each program is signed twice (`scripts/sign.sh`):
+
+| signature | signs these lines (each ends with a newline; the hash in lower-case hex) |
+|---|---|
+| `signature` (v1, `<program>.sig`), for copies already installed | `hots-dash-uploader update` / `version <version>` / `sha256 <hash>` |
+| `signatureV2` (`<program>.sig2`) | `hots-dash-uploader update v2` / `version <version>` / `platform <platform>` / `sha256 <hash>` |
+
+The platform is the program's key in `latest.json`: `windows`, `linux-amd64`, `linux-arm64` or `macos`.
+
+To check a download yourself: compare its SHA-256 with `latest.json`, and verify a signature over
+`updatesig.Message(version, sha256)` or `updatesig.MessageV2(version, sha256, platform)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
 built into every release's program, first in `main.updateKey`).
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.

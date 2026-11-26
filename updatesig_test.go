@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -147,5 +148,53 @@ func TestVersionedBuildsNeedAnUpdateKey(t *testing.T) {
 	a.checkUpdate()
 	if downloads != 1 || applied != 1 {
 		t.Fatalf("versioned with a key: %d downloads, %d applied", downloads, applied)
+	}
+}
+
+// With a v2 signature the copy goes by it alone, and it has to be for this system. Without one, v1 still does.
+func TestUpdateSignatureV2(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	prog := fakeProgram("pretend this is a program")
+	sum := sha256.Sum256(prog)
+	sumHex := hex.EncodeToString(sum[:])
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(prog) }))
+	defer srv.Close()
+	dir := t.TempDir()
+	a := NewAgent(Config{Server: srv.URL, Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
+	old := updateKey
+	updateKey = hex.EncodeToString(pub)
+	defer func() { updateKey = old }()
+
+	const ver = "2099.01.01.0000"
+	sign := func(msg []byte) string { return base64.StdEncoding.EncodeToString(ed25519.Sign(priv, msg)) }
+	v1 := sign(updatesig.Message(ver, sumHex))
+	here := sign(updatesig.MessageV2(ver, sumHex, updatesig.Platform(runtime.GOOS, runtime.GOARCH)))
+	other := "windows"
+	if runtime.GOOS == "windows" {
+		other = "linux-amd64"
+	}
+	elsewhere := sign(updatesig.MessageV2(ver, sumHex, other))
+	for name, c := range map[string]struct {
+		v1, v2 string
+		ok     bool
+	}{
+		"both":                        {v1, here, true},
+		"v2 alone":                    {"", here, true},
+		"v1 alone (an older release)": {v1, "", true},
+		"v2 for another system":       {v1, elsewhere, false},
+		"broken v2 beside a good v1":  {v1, "bm9wZQ==", false},
+		"v1 signature offered as v2":  {v1, v1, false},
+		"v2 signature offered as v1":  {here, "", false},
+		"neither":                     {"", "", false},
+	} {
+		_, err := a.download(&latestInfo{Version: ver, SHA256: sumHex, Size: int64(len(prog)), Signature: c.v1, SignatureV2: c.v2})
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// as the dashboard sends it
+	var v latestInfo
+	if err := json.Unmarshal([]byte(`{"signature":"a","signatureV2":"b"}`), &v); err != nil || v.Signature != "a" || v.SignatureV2 != "b" {
+		t.Fatalf("%+v %v", v, err)
 	}
 }

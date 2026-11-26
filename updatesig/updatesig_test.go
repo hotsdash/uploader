@@ -56,3 +56,44 @@ func TestVerifyAny(t *testing.T) {
 		}
 	}
 }
+
+func TestSignatureV2NamesThePlatform(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	ph := hex.EncodeToString(pub)
+	const ver = "2026.10.30.0100"
+	v1 := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, Message(ver, "abcd")))
+	v2 := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, MessageV2(ver, "ABCD", "linux-amd64")))
+	if err := VerifyAny(ph, ver, "abcd", v1); err != nil {
+		t.Fatalf("v1: %v", err)
+	}
+	if err := VerifyAnyV2(ph, ver, "abcd", "linux-amd64", v2); err != nil {
+		t.Fatalf("v2 (hash case doesn't matter): %v", err)
+	}
+	for _, other := range []string{"windows", "linux-arm64", "macos", ""} {
+		if VerifyAnyV2(ph, ver, "abcd", other, v2) == nil {
+			t.Errorf("a linux-amd64 signature was accepted for %q", other)
+		}
+	}
+	if VerifyAnyV2(ph, "2026.10.30.0101", "abcd", "linux-amd64", v2) == nil || VerifyAnyV2(ph, ver, "abce", "linux-amd64", v2) == nil {
+		t.Error("another version or hash must fail")
+	}
+	// neither kind passes for the other
+	if VerifyAny(ph, ver, "abcd", v2) == nil || VerifyAnyV2(ph, ver, "abcd", "linux-amd64", v1) == nil {
+		t.Error("v1 and v2 signatures were interchangeable")
+	}
+}
+
+func TestPlatform(t *testing.T) {
+	for _, c := range [][3]string{
+		{"windows", "amd64", "windows"},
+		{"windows", "arm64", "windows"},
+		{"linux", "amd64", "linux-amd64"},
+		{"linux", "arm64", "linux-arm64"},
+		{"darwin", "amd64", "macos"},
+		{"darwin", "arm64", "macos"},
+	} {
+		if got := Platform(c[0], c[1]); got != c[2] {
+			t.Errorf("Platform(%s, %s) = %s, want %s", c[0], c[1], got, c[2])
+		}
+	}
+}

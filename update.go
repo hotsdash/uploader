@@ -90,6 +90,9 @@ type latestInfo struct {
 	URL string `json:"url,omitempty"`
 	// Signature: base64 Ed25519 over updatesig.Message(Version, sha256 of the program)
 	Signature string `json:"signature,omitempty"`
+	// SignatureV2: the same over updatesig.MessageV2, which names the platform too. Missing from older releases and
+	// dashboards.
+	SignatureV2 string `json:"signatureV2,omitempty"`
 }
 
 // releaseURLPrefix: the only addresses a dashboard may point the update download at (a variable only so tests can
@@ -309,7 +312,7 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", errors.New("the download didn't match what the dashboard said it would be")
 	}
 	if updateKey != "" {
-		if err := updatesig.VerifyAny(updateKey, v.Version, sum, v.Signature); err != nil {
+		if err := verifySignature(v, sum); err != nil {
 			_ = os.Remove(p)
 			a.log.Printf("update refused: %v", err)
 			return "", err
@@ -323,6 +326,16 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// verifySignature checks the program's hash was signed for this version by a trusted key: for this platform when
+// there's a v2 signature (and then that one has to be good), else by the v1 signature.
+func verifySignature(v *latestInfo, sum string) error {
+	if v.SignatureV2 != "" {
+		return updatesig.VerifyAnyV2(updateKey, v.Version, sum, updatesig.Platform(runtime.GOOS, runtime.GOARCH), v.SignatureV2)
+	}
+	// LATER: require SignatureV2 once installed copies have moved on (and every dashboard passes it on).
+	return updatesig.VerifyAny(updateKey, v.Version, sum, v.Signature)
 }
 
 // updateRedirect: where the update download may be redirected to (at most 5 times): another https address on the
