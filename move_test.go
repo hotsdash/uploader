@@ -14,6 +14,22 @@ import (
 	"time"
 )
 
+// asExampleDotCom gives a TLS test server a public name (its certificate is for example.com too): the address to call
+// it by, and a client that reaches it there (and any plain http server as usual).
+func asExampleDotCom(srv *httptest.Server) (string, *http.Client) {
+	addr := srv.Listener.Addr().String()
+	_, port, _ := net.SplitHostPort(addr)
+	tr := srv.Client().Transport.(*http.Transport).Clone()
+	tr.DialContext = func(ctx context.Context, network, a string) (net.Conn, error) {
+		if strings.HasPrefix(a, "example.com:") {
+			a = addr
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, a)
+	}
+	tr.TLSClientConfig = &tls.Config{RootCAs: tr.TLSClientConfig.RootCAs}
+	return "https://example.com:" + port, &http.Client{Transport: tr}
+}
+
 // A move to another site isn't followed by itself: it waits for the person, and the token stays put until then.
 func TestMoveToAnotherSiteWaitsForThePerson(t *testing.T) {
 	var sawToken bool
@@ -24,25 +40,15 @@ func TestMoveToAnotherSiteWaitsForThePerson(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(latestInfo{Version: "2099.01.01.0000"})
 	}))
 	defer newSite.Close()
-	// the test certificate is for example.com too: call the new site that, so it's another machine name
-	addr := newSite.Listener.Addr().String()
-	_, port, _ := net.SplitHostPort(addr)
-	moved := "https://example.com:" + port
+	// another machine name than the old one's
+	moved, client := asExampleDotCom(newSite)
 	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(latestInfo{Version: "2099.01.01.0000", Server: moved})
 	}))
 	defer old.Close()
 	dir := t.TempDir()
 	a := NewAgent(Config{Server: old.URL, Token: "secret", Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
-	tr := newSite.Client().Transport.(*http.Transport).Clone()
-	tr.DialContext = func(ctx context.Context, network, a string) (net.Conn, error) {
-		if strings.HasPrefix(a, "example.com:") {
-			a = addr
-		}
-		return (&net.Dialer{}).DialContext(ctx, network, a)
-	}
-	tr.TLSClientConfig = &tls.Config{RootCAs: tr.TLSClientConfig.RootCAs}
-	a.client = &http.Client{Transport: tr}
+	a.client = client
 	var notes int
 	a.Notify = func(string, string, string) { notes++ }
 
@@ -72,6 +78,7 @@ func TestMoveToAnotherSiteWaitsForThePerson(t *testing.T) {
 
 	// a couple of weeks on it's suggested again (the dashboard may really have moved)
 	a.Update(func(c *Config) { c.MoveDismissedAt = time.Now().Add(-moveSnooze - time.Hour).Unix() })
+	a.upd.probed = nil // and its last try was long ago
 	_, _ = a.latest()
 	if err := a.AcceptMove(); err != nil {
 		t.Fatal(err)
@@ -121,5 +128,111 @@ func TestNoUpdatesOverPlainHTTP(t *testing.T) {
 	}
 	if st := a.UpdateState(); !st.Insecure || st.CanApply {
 		t.Fatalf("state %+v", st)
+	}
+}
+
+// The dashboard can't have the uploader knock on addresses of the computer or the network it's on.
+func TestMoveTargetsMustBePublicNames(t *testing.T) {
+	for host, want := range map[string]bool{
+		"hotsdash.com":          true,
+		"Hots.Example.COM.":     true,
+		"xn--bcher-kva.example": true,
+		"1password.example":     true,
+		"localhost.example.com": true,
+		"local.example.com":     true,
+		"127.0.0.1":             false,
+		"192.168.1.20":          false,
+		"8.8.8.8":               false, // any IP address, public ones too
+		"8.8.8.8.":              false,
+		"::1":                   false,
+		"::ffff:10.0.0.1":       false,
+		"fe80::1%eth0":          false,
+		"2606:4700:4700::1111":  false,
+		"127.1":                 false,
+		"127.0.0.0x1":           false,
+		"2130706433":            false,
+		"localhost":             false,
+		"LOCALHOST.":            false,
+		"app.localhost":         false,
+		"nas.local":             false,
+		"NAS.Local.":            false,
+		"router":                false,
+		"":                      false,
+	} {
+		if got := publicHost(host); got != want {
+			t.Errorf("publicHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// moveRecorder answers every request with "moved to *to", and records what else was asked for.
+type moveRecorder struct {
+	to     string
+	probes []string
+}
+
+func (m *moveRecorder) RoundTrip(r *http.Request) (*http.Response, error) {
+	body := `{}`
+	if r.URL.Host == "dash.example.org" {
+		body = `{"version":"2099.01.01.0000","server":` + jsonString(m.to) + `}`
+	} else {
+		m.probes = append(m.probes, r.URL.String())
+	}
+	return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+}
+
+func TestFollowMoveProbesPublicNamesOnceADay(t *testing.T) {
+	m := &moveRecorder{}
+	dir := t.TempDir()
+	a := NewAgent(Config{Server: "https://dash.example.org", Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
+	a.client = &http.Client{Transport: m}
+	ask := func(to string) {
+		t.Helper()
+		m.to = to
+		if _, err := a.latest(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, to := range []string{"https://127.0.0.1:8443", "https://10.0.0.1", "https://[::1]", "https://localhost", "https://printer.local/x"} {
+		ask(to)
+		if len(m.probes) != 0 || a.UpdateState().MoveTo != "" {
+			t.Fatalf("%s: probed %v, moveTo %q", to, m.probes, a.UpdateState().MoveTo)
+		}
+	}
+
+	ask("https://new.example.net")
+	ask("https://new.example.net")
+	ask("https://NEW.example.net/")
+	if len(m.probes) != 1 || a.UpdateState().MoveTo != "https://new.example.net" {
+		t.Fatalf("a public name, three times in a day: probed %v, moveTo %q", m.probes, a.UpdateState().MoveTo)
+	}
+	ask("https://other.example.net") // each address has its own day
+	if len(m.probes) != 2 {
+		t.Fatalf("another address: %v", m.probes)
+	}
+	for k := range a.upd.probed {
+		a.upd.probed[k] = time.Now().Add(-moveProbeEvery - time.Minute)
+	}
+	ask("https://new.example.net")
+	if len(m.probes) != 3 {
+		t.Fatalf("a day later: %v", m.probes)
+	}
+}
+
+func TestMoveProbeIsNotRedirectedElsewhere(t *testing.T) {
+	var elsewhere int
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { elsewhere++ }))
+	defer other.Close()
+	newSite := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/inside", http.StatusFound)
+	}))
+	defer newSite.Close()
+	moved, client := asExampleDotCom(newSite)
+	dir := t.TempDir()
+	a := NewAgent(Config{Server: "https://dash.example.org", Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
+	a.client = client
+	a.followMove(moved)
+	if elsewhere != 0 || a.UpdateState().MoveTo != "" {
+		t.Fatalf("followed %d times, moveTo %q", elsewhere, a.UpdateState().MoveTo)
 	}
 }

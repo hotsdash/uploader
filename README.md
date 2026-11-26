@@ -50,6 +50,13 @@ program are still understood.
 
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
 
+## When the dashboard moves
+
+The version answer can name the dashboard's own address. If that's a different one, the uploader checks something
+answers there and then asks you in Settings before switching (the step from http to https on the same address switches
+by itself). It only tries a public https name, never an IP address, `localhost`, a `*.local` name or one without a dot,
+and each address no more than once a day. To use such an address, start the uploader with `-server`.
+
 ## Build
 
 Go 1.26 or newer; no other tools.

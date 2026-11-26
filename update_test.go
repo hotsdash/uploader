@@ -74,24 +74,25 @@ func TestFollowsTheDashboardToItsNewAddress(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(latestInfo{Version: "2099.01.01.0000"})
 	}))
 	defer newSite.Close()
+	moved, client := asExampleDotCom(newSite)
 	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(latestInfo{Version: "2099.01.01.0000", Server: newSite.URL})
+		_ = json.NewEncoder(w).Encode(latestInfo{Version: "2099.01.01.0000", Server: moved})
 	}))
 	defer old.Close()
 	dir := t.TempDir()
 	a := NewAgent(Config{Server: old.URL, Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
-	a.client = newSite.Client() // trusts the test certificate (and plain http for the old one)
+	a.client = client
 	if _, err := a.latest(); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.Config().Server; got != old.URL || a.UpdateState().MoveTo != newSite.URL {
+	if got := a.Config().Server; got != old.URL || a.UpdateState().MoveTo != moved {
 		t.Fatalf("server = %s, moveTo = %s: should wait for the person", got, a.UpdateState().MoveTo)
 	}
 	if err := a.AcceptMove(); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.Config().Server; got != newSite.URL {
-		t.Fatalf("server = %s, want %s", got, newSite.URL)
+	if got := a.Config().Server; got != moved {
+		t.Fatalf("server = %s, want %s", got, moved)
 	}
 }
 
