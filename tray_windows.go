@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -21,12 +20,11 @@ import (
 var iconICO []byte
 
 const (
-	appName        = "hots-dash uploader"
-	mutexName      = `Local\hots-dash-uploader`
-	quitEventName  = `Local\hots-dash-uploader-quit`
-	runKeyPath     = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runValue       = "hots-dash uploader"
-	createNoWindow = 0x08000000
+	appName       = "hots-dash uploader"
+	mutexName     = `Local\hots-dash-uploader`
+	quitEventName = `Local\hots-dash-uploader-quit`
+	runKeyPath    = `Software\Microsoft\Windows\CurrentVersion\Run`
+	runValue      = "hots-dash uploader"
 )
 
 func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
@@ -131,20 +129,6 @@ func shellOpen(u string) {
 	_ = windows.ShellExecute(0, u16("open"), u16(u), nil, nil, windows.SW_SHOWNORMAL)
 }
 
-// toast shows a Windows notification (see notify.go: the text only ever reaches PowerShell as base64).
-// Clicking it opens open, when that's a web address.
-func toast(title, message, open string) {
-	cmd := powershell(toastScript(toastXML(title, message, open)))
-	_ = cmd.Start()
-	go func() { _ = cmd.Wait() }()
-}
-
-func powershell(script string) *exec.Cmd {
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encodedCommand(script))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	return cmd
-}
-
 func main() {
 	dir := appDir()
 	logger := newLogger(dir, nil)
@@ -208,6 +192,7 @@ func main() {
 	})
 	saveConfig(dir, a.Config()) // records the folders found on first run
 	a.Notify = toast
+	toastFailed = func(err error) { logger.Printf("notification: %v", err) }
 	updated := len(os.Args) > 1 && os.Args[1] == "--updated"
 	var prev *uiHandoff
 	if updated {

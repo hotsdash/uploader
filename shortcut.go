@@ -1,11 +1,9 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"strings"
-	"unicode/utf16"
 )
 
 // The Start menu shortcut is made through COM (shortcut_windows.go). It also carries the app's ID
@@ -52,13 +50,3 @@ type propVariant struct {
 }
 
 const vtLPWSTR = 31
-
-// encodedCommand: a script as PowerShell's -EncodedCommand wants it (UTF-16LE, base64).
-func encodedCommand(ps string) string {
-	enc := utf16.Encode([]rune(ps))
-	b := make([]byte, len(enc)*2)
-	for i, v := range enc {
-		b[i*2], b[i*2+1] = byte(v), byte(v>>8)
-	}
-	return base64.StdEncoding.EncodeToString(b)
-}

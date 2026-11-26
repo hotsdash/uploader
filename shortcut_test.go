@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/base64"
 	"testing"
-	"unicode/utf16"
 	"unsafe"
 )
 
@@ -31,16 +29,5 @@ func TestAppUserModelID(t *testing.T) {
 		if r <= ' ' || r > '~' || r == '\\' {
 			t.Fatalf("%q in the app ID", r)
 		}
-	}
-}
-
-func TestEncodedCommandIsUTF16LE(t *testing.T) {
-	b, err := base64.StdEncoding.DecodeString(encodedCommand("a’"))
-	if err != nil || len(b) != 4 {
-		t.Fatalf("got %v %v", b, err)
-	}
-	u := []uint16{uint16(b[0]) | uint16(b[1])<<8, uint16(b[2]) | uint16(b[3])<<8}
-	if string(utf16.Decode(u)) != "a’" {
-		t.Fatalf("got %v", u)
 	}
 }
