@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hotsdash/uploader/updatesig"
+	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
 // Updating itself: every few hours the uploader asks the dashboard for the newest version. Versions are the time

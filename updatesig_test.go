@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hotsdash/uploader/updatesig"
+	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
 func TestSignedUpdates(t *testing.T) {

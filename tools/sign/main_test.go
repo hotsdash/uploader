@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hotsdash/uploader/updatesig"
+	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
 func TestSignProgramWritesBothSignatures(t *testing.T) {

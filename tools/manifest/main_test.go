@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/hotsdash/uploader/updatesig"
+	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
 func fixture(t *testing.T, sign bool) string {
