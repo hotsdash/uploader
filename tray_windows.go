@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"fyne.io/systray"
@@ -21,12 +20,11 @@ import (
 var iconICO []byte
 
 const (
-	appName        = "hots-dash uploader"
-	mutexName      = `Local\hots-dash-uploader`
-	quitEventName  = `Local\hots-dash-uploader-quit`
-	runKeyPath     = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runValue       = "hots-dash uploader"
-	createNoWindow = 0x08000000
+	appName       = "hots-dash uploader"
+	mutexName     = `Local\hots-dash-uploader`
+	quitEventName = `Local\hots-dash-uploader-quit`
+	runKeyPath    = `Software\Microsoft\Windows\CurrentVersion\Run`
+	runValue      = "hots-dash uploader"
 )
 
 func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
@@ -134,58 +132,6 @@ func shellOpen(u string) {
 	_ = windows.ShellExecute(0, u16("open"), u16(u), nil, nil, windows.SW_SHOWNORMAL)
 }
 
-// toast shows a Windows notification (see notify.go: the text only ever reaches PowerShell as base64).
-// Clicking it opens open, when that's a web address.
-func toast(title, message, open string) {
-	cmd := powershell(toastScript(toastXML(title, message, open)))
-	_ = cmd.Start()
-	go func() { _ = cmd.Wait() }()
-}
-
-func powershell(script string) *exec.Cmd {
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encodedCommand(script))
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	return cmd
-}
-
-// shortcutPath: the Start menu entry, so it can be opened again after Quit (%APPDATA%\Microsoft\Windows\Start Menu\Programs).
-func shortcutPath() string {
-	base := os.Getenv("APPDATA")
-	if base == "" {
-		base, _ = os.UserConfigDir()
-	}
-	return filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", appName+".lnk")
-}
-
-// ensureShortcut adds the Start menu entry when it's missing (a fresh install, or one from before it had one).
-// The program has no icon of its own, so the tray icon goes next to it for the shortcut to use.
-func ensureShortcut(target string, logger interface{ Printf(string, ...any) }) {
-	lnk := shortcutPath()
-	if _, err := os.Stat(lnk); err == nil {
-		return
-	}
-	icon := filepath.Join(filepath.Dir(target), "hots-dash.ico")
-	if err := os.WriteFile(icon, iconICO, 0o644); err != nil {
-		logger.Printf("start menu shortcut: icon: %v", err)
-	}
-	_ = os.MkdirAll(filepath.Dir(lnk), 0o755)
-	cmd := powershell(shortcutScript(lnk, target, icon))
-	if err := cmd.Start(); err != nil {
-		logger.Printf("start menu shortcut: %v", err)
-		return
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			logger.Printf("start menu shortcut: %v", err)
-		}
-	case <-time.After(15 * time.Second):
-		logger.Printf("start menu shortcut: PowerShell took too long")
-	}
-}
-
 func main() {
 	dir := appDir()
 	logger := newLogger(dir, nil)
@@ -249,6 +195,7 @@ func main() {
 	})
 	saveConfig(dir, a.Config()) // records the folders found on first run
 	a.Notify = toast
+	toastFailed = func(err error) { logger.Printf("notification: %v", err) }
 	updated := len(os.Args) > 1 && os.Args[1] == "--updated"
 	var prev *uiHandoff
 	if updated {

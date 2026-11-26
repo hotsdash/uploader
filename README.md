@@ -80,6 +80,10 @@ On Linux and macOS the settings folder and the log are readable by you only.
 
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
 
+On Windows it also adds a Start menu shortcut, and registers its name for notifications under
+`HKCU\Software\Classes\AppUserModelId\HotsDash.Uploader`. Notifications are listed as "hots-dash uploader" in
+Windows' notification settings, where they can be turned off.
+
 On Linux the game runs in Wine, so the check on who's in a game looks for the lobby file inside the Wine prefix your
 replay folder is in, found when the uploader starts. With no replay folder in a prefix there's no check; `-lobby DIR`
 names the folder yourself (anything but `/tmp/Heroes of the Storm`, which is never used).

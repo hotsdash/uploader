@@ -1,41 +1,52 @@
 package main
 
 import (
-	"encoding/base64"
-	"regexp"
+	"encoding/xml"
+	"io"
 	"strings"
 	"testing"
 )
 
-// Text from the dashboard must never reach the PowerShell script as text: curly quotes end a single-quoted
-// PowerShell string just like ' does.
-func TestToastTextNeverReachesTheScript(t *testing.T) {
-	payloads := []string{
-		"Nice game'); Start-Process calc; ('",
-		"Nice game’); Start-Process calc; (‘",
-		"Nice game‚); Start-Process calc; (‛",
-		"$(Start-Process calc)",
-		"`$env:USERNAME",
-	}
-	b64 := regexp.MustCompile(`FromBase64String\('([A-Za-z0-9+/=]*)'\)`)
-	for _, p := range payloads {
-		xml := toastXML(p, p+"\nsecond line "+p, "https://hots.example.com/matches/1")
-		ps := toastScript(xml)
-		if strings.Contains(ps, "Start-Process") || strings.Contains(ps, "USERNAME") {
-			t.Fatalf("text reached the script for %q", p)
-		}
-		for _, q := range []string{"‘", "’", "‚", "‛"} {
-			if strings.Contains(ps, q) {
-				t.Fatalf("a curly quote reached the script for %q", p)
+// Text from the dashboard only ever goes into the toast as text: it can't add elements or attributes.
+func TestToastTextStaysText(t *testing.T) {
+	for _, p := range []string{
+		`</text></binding></visual><actions><action content="x" arguments="calc:" activationType="protocol"/></actions>`,
+		`" activationType="protocol" launch="ms-msdt:x`,
+		`'><toast launch='file:///c:/x.exe'>`,
+		`&lt;already&gt; &amp; ]]> <!-- <?x ?> <![CDATA[`,
+		"curly ’quotes‘ $(x) `y` é 🎮",
+	} {
+		x := toastXML(p, p+"\n"+p, "https://hots.example.com/matches/1")
+		var elements, attributes, texts []string
+		d := xml.NewDecoder(strings.NewReader(x))
+		for {
+			tok, err := d.Token()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("%q: not XML: %v", p, err)
+			}
+			switch v := tok.(type) {
+			case xml.StartElement:
+				elements = append(elements, v.Name.Local)
+				for _, a := range v.Attr {
+					attributes = append(attributes, a.Name.Local+"="+a.Value)
+				}
+			case xml.CharData:
+				texts = append(texts, string(v))
+			case xml.Comment, xml.ProcInst, xml.Directive:
+				t.Fatalf("%q: added %T", p, v)
 			}
 		}
-		m := b64.FindStringSubmatch(ps)
-		if m == nil {
-			t.Fatal("no base64 XML in the script")
+		if got := strings.Join(elements, " "); got != "toast visual binding text text text" {
+			t.Fatalf("%q: elements %s", p, got)
 		}
-		got, err := base64.StdEncoding.DecodeString(m[1])
-		if err != nil || string(got) != xml {
-			t.Fatalf("the XML doesn't round-trip: %v", err)
+		if got := strings.Join(attributes, " "); got != "activationType=protocol launch=https://hots.example.com/matches/1 template=ToastGeneric" {
+			t.Fatalf("%q: attributes %s", p, got)
+		}
+		if len(texts) != 3 || texts[0] != p || texts[1] != p || texts[2] != p {
+			t.Fatalf("%q: text came back as %q", p, texts)
 		}
 	}
 }
@@ -52,8 +63,8 @@ func TestToastXML(t *testing.T) {
 }
 
 func TestLongToastsAreClipped(t *testing.T) {
-	ps := toastScript(toastXML(strings.Repeat("t", 5000), strings.Repeat("m", 50000), ""))
-	if len(ps) > 12000 { // -EncodedCommand doubles it (UTF-16) then base64s it: stay well under 32K
-		t.Fatalf("script is %d bytes", len(ps))
+	x := toastXML(strings.Repeat("t", 5000), strings.Repeat("m", 50000), "")
+	if strings.Count(x, "t") > 300 || strings.Count(x, "m") > 1600 {
+		t.Fatalf("toast is %d bytes", len(x))
 	}
 }

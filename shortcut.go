@@ -1,30 +1,52 @@
 package main
 
 import (
-	"encoding/base64"
-	"unicode/utf16"
+	"encoding/binary"
+	"encoding/hex"
+	"strings"
 )
 
-// shortcutScript: the PowerShell that makes the Start menu shortcut (lnk) to the installed program (target), with
-// its icon (icon). The paths come from the environment and can hold anything a folder name can, so they're only ever
-// in the script as base64, like the notification text (see notify.go).
-func shortcutScript(lnk, target, icon string) string {
-	dec := func(s string) string {
-		return `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('` + base64.StdEncoding.EncodeToString([]byte(s)) + `'))`
-	}
-	return `$s = (New-Object -ComObject WScript.Shell).CreateShortcut(` + dec(lnk) + `)
-$s.TargetPath = ` + dec(target) + `
-$s.IconLocation = ` + dec(icon) + `
-$s.Description = 'Upload your Heroes of the Storm replays to hots-dash'
-$s.Save()`
+// The Start menu shortcut is made through COM (shortcut_windows.go). It also carries the app's ID
+// (System.AppUserModel.ID), which is how Windows knows whose notifications are whose. What that needs and can be
+// checked on any system is here.
+
+// appUserModelID: the uploader's name to Windows. Changing it loses the person's notification settings for it.
+const appUserModelID = "HotsDash.Uploader"
+
+// guid is Windows' GUID, laid out as in memory.
+type guid struct {
+	Data1 uint32
+	Data2 uint16
+	Data3 uint16
+	Data4 [8]byte
 }
 
-// encodedCommand: a script as PowerShell's -EncodedCommand wants it (UTF-16LE, base64).
-func encodedCommand(ps string) string {
-	enc := utf16.Encode([]rune(ps))
-	b := make([]byte, len(enc)*2)
-	for i, v := range enc {
-		b[i*2], b[i*2+1] = byte(v), byte(v>>8)
+// mustGUID reads a GUID written as in the Windows headers, 8-4-4-4-12.
+func mustGUID(s string) guid {
+	b, err := hex.DecodeString(strings.ReplaceAll(s, "-", ""))
+	if err != nil || len(s) != 36 || len(b) != 16 {
+		panic("bad GUID " + s)
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	g := guid{Data1: binary.BigEndian.Uint32(b), Data2: binary.BigEndian.Uint16(b[4:]), Data3: binary.BigEndian.Uint16(b[6:])}
+	copy(g.Data4[:], b[8:])
+	return g
 }
+
+// propertyKey is Windows' PROPERTYKEY.
+type propertyKey struct {
+	fmtid guid
+	pid   uint32
+}
+
+// pkeyAppUserModelID is PKEY_AppUserModel_ID (propkey.h).
+var pkeyAppUserModelID = propertyKey{mustGUID("9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3"), 5}
+
+// propVariant is a PROPVARIANT holding a string: the type, three reserved words, then a union two pointers wide.
+type propVariant struct {
+	vt  uint16
+	_   [3]uint16
+	str *uint16
+	_   uintptr
+}
+
+const vtLPWSTR = 31
