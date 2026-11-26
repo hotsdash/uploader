@@ -93,7 +93,10 @@ func TestFallbackGoesAround(t *testing.T) {
 		t.Fatalf("lookups %d, hits %d", lookups.Load(), hits.Load())
 	}
 	// after pinFor, the normal route is tried again (and is still intercepted)
+	// under the lock: a dial the transport started by itself may be reading the clock right now
+	f.mu.Lock()
 	f.now = func() time.Time { return time.Now().Add(pinFor + time.Minute) }
+	f.mu.Unlock()
 	if res, err := c.Get(u + "/api/x"); err != nil {
 		t.Fatal(err)
 	} else {
