@@ -13,7 +13,7 @@ import (
 
 func TestNoSettingsMeansTheDefaultServerAndAFirstRunSignIn(t *testing.T) {
 	c := resolveConfig(t.TempDir())
-	if c == nil || c.Server != defaultServer || !c.AskSignIn || c.Token != "" {
+	if c.Server != defaultServer || !c.AskSignIn || c.Token != "" {
 		t.Fatalf("%+v", c)
 	}
 	dir := t.TempDir()

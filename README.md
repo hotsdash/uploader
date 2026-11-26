@@ -27,7 +27,8 @@ Every download of a version is the same file for everyone, byte for byte.
 ## How sign-in works
 
 Nothing is set up in the download. The uploader uploads to `https://hotsdash.com` by default; to use another
-dashboard (self-hosting), change the address in its settings page, or start it with `-server https://your.dashboard`.
+dashboard (self-hosting) on Linux or macOS, start it with `-server https://your.dashboard`, which runs it in that
+terminal.
 
 The first time it runs (and isn't signed in) it signs in like a TV app:
 

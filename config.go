@@ -28,7 +28,7 @@ import (
 // from the browser on first run (signin.go autoSignIn).
 const trailerMagic = "HDCFG001"
 
-// defaultServer: where a copy with no settings uploads. Self-hosters change it in Settings or with -server.
+// defaultServer: where a copy with no settings uploads. Self-hosters start it with -server.
 const defaultServer = "https://hotsdash.com"
 
 // setupFile: the settings that come with a Linux or Mac download, beside the program.
@@ -120,18 +120,18 @@ func saveConfig(dir string, c Config) {
 
 // resolveConfig: settings in a fresh download win (new settings), but keep any folder overrides the person set by
 // hand in config.json. The same download starting again (every Windows start) keeps what was changed since, such
-// as signing in or out from the settings page.
-func resolveConfig(dir string) *Config {
+// as signing in or out from the settings page. With neither, it's defaultServer and a first-run sign-in.
+func resolveConfig(dir string) Config {
 	saved := loadSaved(dir)
 	emb, _ := embeddedConfig()
 	if emb == nil {
 		if saved == nil {
-			return &Config{Server: defaultServer, AskSignIn: true}
+			return Config{Server: defaultServer, AskSignIn: true}
 		}
-		return saved
+		return *saved
 	}
 	if saved != nil && saved.Embedded == emb.Embedded {
-		return saved
+		return *saved
 	}
 	if saved != nil {
 		// a fresh download brings the server address and key; your folders and choices stay
@@ -161,7 +161,7 @@ func resolveConfig(dir string) *Config {
 		}
 	}
 	saveConfig(dir, *emb)
-	return emb
+	return *emb
 }
 
 // newLogger writes to uploader.log in dir (starting afresh once it passes 1 MB), and to extra if given.

@@ -190,10 +190,6 @@ func main() {
 	dir := appDir()
 	logger := newLogger(dir, nil)
 	cfg := resolveConfig(dir)
-	if cfg == nil {
-		msgBox("This copy isn't set up for a dashboard.\n\nOpen your hots-dash dashboard, go to Accounts, and use \"Download the uploader\": that copy is set up for you.", windows.MB_ICONINFORMATION)
-		return
-	}
 
 	// Run from a download: install (or update) into the user's programs folder, start that copy, done.
 	exe, _ := os.Executable()
@@ -243,7 +239,7 @@ func main() {
 	quit, _ := windows.CreateEvent(nil, 1, 0, u16(quitEventName))
 	defer windows.CloseHandle(quit)
 
-	a := NewAgent(*cfg, dir, logger)
+	a := NewAgent(cfg, dir, logger)
 	a.AutoSignIn = true
 	a.OnConfigChange(func(c Config) {
 		saveConfig(dir, c)

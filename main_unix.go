@@ -83,11 +83,7 @@ func uploadToken(fromFlag string, warn io.Writer) string {
 func runTerminal(dir, server, token, replays, lobby string, ui, once bool) {
 	cfg := resolveConfig(dir)
 	if server != "" {
-		cfg = &Config{Server: server, Token: token}
-	}
-	if cfg == nil {
-		fmt.Fprintln(os.Stderr, "Need --server and --token (or a download from your dashboard's Accounts page).")
-		os.Exit(1)
+		cfg = Config{Server: server, Token: token}
 	}
 	if replays != "" {
 		cfg.Folders = nil
@@ -101,7 +97,7 @@ func runTerminal(dir, server, token, replays, lobby string, ui, once bool) {
 		cfg.Lobby = lobby
 	}
 	logger := newLogger(dir, os.Stdout)
-	a := NewAgent(*cfg, dir, logger)
+	a := NewAgent(cfg, dir, logger)
 	a.OnConfigChange(func(c Config) { saveConfig(dir, c) })
 	a.Notify = func(title, msg, _ string) { logger.Printf("NOTIFY %s\n%s", title, msg) }
 	if once {
@@ -137,10 +133,6 @@ func stopOnSignal() chan struct{} {
 // installOrOpen: run from a download, install and start; run as the installed copy, open the settings page.
 func installOrOpen(dir string) {
 	cfg := resolveConfig(dir)
-	if cfg == nil {
-		fmt.Println("This copy isn't set up for a dashboard.\n\nOpen your hots-dash dashboard, go to Accounts, and use \"Download the uploader\": that copy is set up for you.")
-		os.Exit(1)
-	}
 	exe, _ := os.Executable()
 	target := installPath()
 	if !samePath(exe, target) {
@@ -223,15 +215,11 @@ func settingsURL(dir string, wait time.Duration) string {
 func runService(dir string, updated bool) {
 	logger := newLogger(dir, nil)
 	cfg := resolveConfig(dir)
-	if cfg == nil {
-		logger.Printf("not set up for a dashboard: download the uploader from the dashboard's Accounts page")
-		return // a clean exit, so it isn't restarted over and over
-	}
 	if !takeLock(dir) {
 		logger.Printf("already running")
 		return
 	}
-	a := NewAgent(*cfg, dir, logger)
+	a := NewAgent(cfg, dir, logger)
 	a.AutoSignIn = true
 	a.OnConfigChange(func(c Config) { saveConfig(dir, c) })
 	saveConfig(dir, a.Config()) // records the folders found on first run
