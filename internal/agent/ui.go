@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"net"
 	"net/http"
 	"os"
@@ -181,19 +182,44 @@ func listenAgain(port int, tries int, gap time.Duration) net.Listener {
 	return nil
 }
 
+// browserSafePort: browsers refuse to open some ports (ERR_UNSAFE_PORT, e.g. 6669), all of them 10080 or lower.
+func browserSafePort(p int) bool { return p > 10080 }
+
+// listenSafe listens on this computer only, on a port browsers will open: a random high one, or failing that
+// whichever the system hands out, as long as it's one of those (some systems hand out low ones).
+func listenSafe() (net.Listener, error) {
+	const first, last, tries = 49152, 65535, 20
+	for range tries {
+		if ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(first+mrand.IntN(last-first+1))); err == nil {
+			return ln, nil
+		}
+	}
+	for range tries {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, err
+		}
+		if browserSafePort(ln.Addr().(*net.TCPAddr).Port) {
+			return ln, nil
+		}
+		_ = ln.Close()
+	}
+	return nil, errors.New("no port a browser would open is free")
+}
+
 // StartUI serves the settings page. With a handoff from the copy it's replacing, it serves it at the same
 // address when it can (Reused() says whether it did).
 func StartUI(a *Agent, prev *UIHandoff) (*ui, error) {
 	var ln net.Listener
 	key := ""
-	if prev != nil {
+	if prev != nil && browserSafePort(prev.Port) {
 		if ln = listenAgain(prev.Port, 20, 250*time.Millisecond); ln != nil {
 			key = prev.Key
 		}
 	}
 	if ln == nil {
 		var err error
-		if ln, err = net.Listen("tcp", "127.0.0.1:0"); err != nil {
+		if ln, err = listenSafe(); err != nil {
 			return nil, err
 		}
 		b := make([]byte, 16)
