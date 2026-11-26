@@ -145,44 +145,6 @@ func powershell(script string) *exec.Cmd {
 	return cmd
 }
 
-// shortcutPath: the Start menu entry, so it can be opened again after Quit (%APPDATA%\Microsoft\Windows\Start Menu\Programs).
-func shortcutPath() string {
-	base := os.Getenv("APPDATA")
-	if base == "" {
-		base, _ = os.UserConfigDir()
-	}
-	return filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", appName+".lnk")
-}
-
-// ensureShortcut adds the Start menu entry when it's missing (a fresh install, or one from before it had one).
-// The program has no icon of its own, so the tray icon goes next to it for the shortcut to use.
-func ensureShortcut(target string, logger interface{ Printf(string, ...any) }) {
-	lnk := shortcutPath()
-	if _, err := os.Stat(lnk); err == nil {
-		return
-	}
-	icon := filepath.Join(filepath.Dir(target), "hots-dash.ico")
-	if err := os.WriteFile(icon, iconICO, 0o644); err != nil {
-		logger.Printf("start menu shortcut: icon: %v", err)
-	}
-	_ = os.MkdirAll(filepath.Dir(lnk), 0o755)
-	cmd := powershell(shortcutScript(lnk, target, icon))
-	if err := cmd.Start(); err != nil {
-		logger.Printf("start menu shortcut: %v", err)
-		return
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			logger.Printf("start menu shortcut: %v", err)
-		}
-	case <-time.After(15 * time.Second):
-		logger.Printf("start menu shortcut: PowerShell took too long")
-	}
-}
-
 func main() {
 	dir := appDir()
 	logger := newLogger(dir, nil)

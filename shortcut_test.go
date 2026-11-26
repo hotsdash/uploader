@@ -2,29 +2,35 @@ package main
 
 import (
 	"encoding/base64"
-	"regexp"
-	"strings"
 	"testing"
 	"unicode/utf16"
+	"unsafe"
 )
 
-// A folder name can hold anything, so the paths must never reach the shortcut script as text.
-func TestShortcutPathsNeverReachTheScript(t *testing.T) {
-	odd := `C:\Users\O’Brien'); Start-Process calc; ('$(whoami)` + "`" + `\AppData`
-	ps := shortcutScript(odd+`\Start Menu\x.lnk`, odd+`\hots-dash-uploader.exe`, odd+`\hots-dash.ico`)
-	for _, bad := range []string{"Start-Process", "whoami", "O’Brien", "`"} {
-		if strings.Contains(ps, bad) {
-			t.Fatalf("%q reached the script:\n%s", bad, ps)
+func TestGUIDLayout(t *testing.T) {
+	want := guid{0x9f4c2855, 0x9f79, 0x4b39, [8]byte{0xa8, 0xd0, 0xe1, 0xd4, 0x2d, 0xe1, 0xd5, 0xf3}}
+	if pkeyAppUserModelID.fmtid != want || pkeyAppUserModelID.pid != 5 {
+		t.Fatalf("PKEY_AppUserModel_ID: %+v", pkeyAppUserModelID)
+	}
+	if unsafe.Sizeof(guid{}) != 16 || unsafe.Sizeof(propertyKey{}) != 20 {
+		t.Fatalf("sizes: GUID %d, PROPERTYKEY %d", unsafe.Sizeof(guid{}), unsafe.Sizeof(propertyKey{}))
+	}
+	// PROPVARIANT: 8 bytes of header and a two-pointer union (24 bytes on 64-bit Windows)
+	var v propVariant
+	if unsafe.Sizeof(v) != 8+2*unsafe.Sizeof(uintptr(0)) || unsafe.Offsetof(v.str) != 8 {
+		t.Fatalf("PROPVARIANT: size %d, string at %d", unsafe.Sizeof(v), unsafe.Offsetof(v.str))
+	}
+}
+
+// Windows allows an app ID of up to 128 characters, without spaces.
+func TestAppUserModelID(t *testing.T) {
+	if n := len(appUserModelID); n == 0 || n > 128 {
+		t.Fatalf("length %d", n)
+	}
+	for _, r := range appUserModelID {
+		if r <= ' ' || r > '~' || r == '\\' {
+			t.Fatalf("%q in the app ID", r)
 		}
-	}
-	b64 := regexp.MustCompile(`FromBase64String\('([A-Za-z0-9+/=]*)'\)`)
-	m := b64.FindAllStringSubmatch(ps, -1)
-	if len(m) != 3 {
-		t.Fatalf("want the shortcut, program and icon paths, got %d", len(m))
-	}
-	got, _ := base64.StdEncoding.DecodeString(m[1][1])
-	if string(got) != odd+`\hots-dash-uploader.exe` {
-		t.Fatalf("program path came back as %q", got)
 	}
 }
 
