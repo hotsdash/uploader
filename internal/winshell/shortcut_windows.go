@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package winshell
 
 import (
 	"os"
@@ -33,13 +33,13 @@ func shortcutPath() string {
 	if base == "" {
 		base, _ = os.UserConfigDir()
 	}
-	return filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", appName+".lnk")
+	return filepath.Join(base, "Microsoft", "Windows", "Start Menu", "Programs", AppName+".lnk")
 }
 
-// ensureShortcut writes the Start menu entry at each install and update. An existing one is written over: those
+// EnsureShortcut writes the Start menu entry at each install and update. An existing one is written over: those
 // made by earlier versions don't carry the app's ID.
 // The program has no icon of its own, so the tray icon goes next to it for the shortcut to use.
-func ensureShortcut(target string, logger interface{ Printf(string, ...any) }) {
+func EnsureShortcut(target string, iconICO []byte, logger interface{ Printf(string, ...any) }) {
 	icon := filepath.Join(filepath.Dir(target), "hots-dash.ico")
 	if err := os.WriteFile(icon, iconICO, 0o644); err != nil {
 		logger.Printf("start menu shortcut: icon: %v", err)

@@ -1,4 +1,5 @@
-package main
+// Package winshell is what the uploader asks of the Windows shell: notifications and the Start menu shortcut.
+package winshell
 
 import (
 	"strings"
@@ -25,7 +26,7 @@ func xmlEscape(s string) string {
 // toastXML: the notification, one line of text per line of message. Clicking it opens open, if that's a web address.
 func toastXML(title, message, open string) string {
 	// a notification shows a few lines, and Windows refuses a very long one
-	title, message = clip(title, 200), clip(message, 1500)
+	title, message = Clip(title, 200), Clip(message, 1500)
 	var lines strings.Builder
 	for _, l := range strings.Split(message, "\n") {
 		if l != "" {
@@ -39,8 +40,8 @@ func toastXML(title, message, open string) string {
 	return `<toast` + launch + `><visual><binding template="ToastGeneric"><text>` + xmlEscape(title) + `</text>` + lines.String() + `</binding></visual></toast>`
 }
 
-// clip shortens s to at most n runes.
-func clip(s string, n int) string {
+// Clip shortens s to at most n runes.
+func Clip(s string, n int) string {
 	if r := []rune(s); len(r) > n {
 		return string(r[:n-1]) + "…"
 	}

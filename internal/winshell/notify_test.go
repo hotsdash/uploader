@@ -1,4 +1,4 @@
-package main
+package winshell
 
 import (
 	"encoding/xml"

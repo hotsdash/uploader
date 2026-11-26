@@ -1,4 +1,4 @@
-package main
+package winshell
 
 import (
 	"encoding/binary"
@@ -9,6 +9,9 @@ import (
 // The Start menu shortcut is made through COM (shortcut_windows.go). It also carries the app's ID
 // (System.AppUserModel.ID), which is how Windows knows whose notifications are whose. What that needs and can be
 // checked on any system is here.
+
+// AppName: the uploader's name as people see it (the shortcut, notifications, the tray).
+const AppName = "hots-dash uploader"
 
 // appUserModelID: the uploader's name to Windows. Changing it loses the person's notification settings for it.
 const appUserModelID = "HotsDash.Uploader"

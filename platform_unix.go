@@ -19,6 +19,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/winshell"
 )
 
 const (
@@ -359,7 +361,7 @@ func setAutostartState(on bool) error      { return setAutostart(on) }
 // (notify-send, after --) or an environment variable (macOS), never part of a command or script. Clicking it does
 // nothing here (the Windows one opens open).
 func notify(title, message, _ string) {
-	title, message = clip(plainText(title), 200), clip(plainText(message), 1000)
+	title, message = winshell.Clip(plainText(title), 200), winshell.Clip(plainText(message), 1000)
 	var c *exec.Cmd
 	if runtime.GOOS == "darwin" {
 		c = exec.Command("osascript", "-l", "JavaScript", "-e",

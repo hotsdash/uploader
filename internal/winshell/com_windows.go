@@ -1,19 +1,26 @@
 //go:build windows
 
-package main
+package winshell
 
 import (
 	"fmt"
 	"runtime"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // Just enough COM to make the Start menu shortcut and show notifications. An object is a pointer to its table of
 // methods, called by their position in it, as the Windows headers (shobjidl.h and friends) declare them. The first
 // three are always QueryInterface, AddRef and Release.
 
-var procCoCreateInstance = ole32.NewProc("CoCreateInstance")
+var (
+	ole32                = windows.NewLazySystemDLL("ole32.dll")
+	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize   = ole32.NewProc("CoUninitialize")
+	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
+)
 
 const (
 	coinitApartmentThreaded = 0x2

@@ -16,13 +16,14 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/hotsdash/uploader/internal/links"
+	"github.com/hotsdash/uploader/internal/winshell"
 )
 
 //go:embed icon.ico
 var iconICO []byte
 
 const (
-	appName       = "hots-dash uploader"
+	appName       = winshell.AppName
 	mutexName     = `Local\hots-dash-uploader`
 	quitEventName = `Local\hots-dash-uploader-quit`
 	runKeyPath    = `Software\Microsoft\Windows\CurrentVersion\Run`
@@ -131,6 +132,7 @@ func setAutostart(on bool) error {
 }
 
 func main() {
+	winshell.InstallPath = installPath
 	dir := appDir()
 	logger := newLogger(dir, nil)
 	cfg := resolveConfig(dir)
@@ -164,7 +166,7 @@ func main() {
 		if err := cmd.Start(); err != nil {
 			msgBox("Installed, but couldn't start it:\n"+err.Error(), windows.MB_ICONERROR)
 		}
-		ensureShortcut(target, logger) // after starting it, so the settings page isn't held up
+		winshell.EnsureShortcut(target, iconICO, logger) // after starting it, so the settings page isn't held up
 		return
 	}
 
@@ -192,8 +194,8 @@ func main() {
 		}
 	})
 	saveConfig(dir, a.Config()) // records the folders found on first run
-	a.Notify = toast
-	toastFailed = func(err error) { logger.Printf("notification: %v", err) }
+	a.Notify = winshell.Toast
+	winshell.ToastFailed = func(err error) { logger.Printf("notification: %v", err) }
 	updated := len(os.Args) > 1 && os.Args[1] == "--updated"
 	var prev *uiHandoff
 	if updated {
@@ -220,7 +222,7 @@ func main() {
 		return exec.Command(p, "--update").Start()
 	}
 	if updated {
-		toast("hots-dash uploader updated", "Now on version "+version+". It carries on uploading as before.", "")
+		winshell.Toast("hots-dash uploader updated", "Now on version "+version+". It carries on uploading as before.", "")
 		switch {
 		case page == nil || prev == nil:
 		case page.Reused(prev):
@@ -235,7 +237,7 @@ func main() {
 		if cfg.Name != "" {
 			who = " as " + cfg.Name
 		}
-		toast("hots-dash uploader is running", "It's uploading your replays"+who+" and will keep sending new ones. It's in the tray by the clock.", cfg.Server)
+		winshell.Toast("hots-dash uploader is running", "It's uploading your replays"+who+" and will keep sending new ones. It's in the tray by the clock.", cfg.Server)
 		if settings != "" {
 			links.OpenURL(settings) // show what it found, so folders can be added straight away
 		}

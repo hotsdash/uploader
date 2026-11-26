@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package winshell
 
 import (
 	"os"
@@ -40,21 +40,24 @@ const (
 	toastNotifierShow              = 6
 )
 
-// toastFailed hears why a notification couldn't be shown (the log).
-var toastFailed = func(error) {}
+// InstallPath is where the installed program is (set by it): the icon for notifications is beside it.
+var InstallPath = func() string { return "" }
 
-// toast shows a Windows notification. Clicking it opens open, when that's a web address.
-func toast(title, message, open string) {
+// ToastFailed hears why a notification couldn't be shown (the log).
+var ToastFailed = func(error) {}
+
+// Toast shows a Windows notification. Clicking it opens open, when that's a web address.
+func Toast(title, message, open string) {
 	x := toastXML(title, message, open)
 	go func() {
 		if err := registerAppID(); err != nil {
-			toastFailed(err) // the Start menu shortcut carries the ID too: try anyway
+			ToastFailed(err) // the Start menu shortcut carries the ID too: try anyway
 		}
 		err := withToast(x, func(notifier, notification *comObject) error {
 			return notifier.call(toastNotifierShow, uintptr(unsafe.Pointer(notification)))
 		})
 		if err != nil {
-			toastFailed(err)
+			ToastFailed(err)
 		}
 	}()
 }
@@ -67,13 +70,13 @@ func registerAppID() error {
 		return err
 	}
 	defer k.Close()
-	icon := filepath.Join(filepath.Dir(installPath()), "hots-dash.ico")
+	icon := filepath.Join(filepath.Dir(InstallPath()), "hots-dash.ico")
 	if _, err := os.Stat(icon); err == nil {
 		if err := k.SetStringValue("IconUri", icon); err != nil {
 			return err
 		}
 	}
-	return k.SetStringValue("DisplayName", appName)
+	return k.SetStringValue("DisplayName", AppName)
 }
 
 // hstring is a WinRT string. The caller frees it with free.
