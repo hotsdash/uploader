@@ -161,6 +161,7 @@ func StartUI(a *Agent, prev *uiHandoff) (*ui, error) {
 	mux.HandleFunc("/api/live", u.api(u.live))
 	mux.HandleFunc("/api/rejoin", u.api(u.rejoin))
 	mux.HandleFunc("/api/games", u.api(u.games))
+	mux.HandleFunc("/api/network", u.api(u.network))
 	mux.HandleFunc("/api/autostart", u.api(u.autostart))
 	mux.HandleFunc("/api/open", u.api(u.open))
 	mux.HandleFunc("/api/signin", u.api(u.signIn))
@@ -327,6 +328,7 @@ func (u *ui) state(r *http.Request) (any, error) {
 		"rejoin":    map[string]any{"accounts": liveRows, "others": otherRows, "missing": len(liveMissing(liveAccts)), "set": len(u.a.rejoinDirs())},
 		"games":     map[string]any{"on": !cfg.NoGameNotes},
 		"autostart": map[string]bool{"supported": auto, "on": autoOn},
+		"network":   map[string]any{"on": !cfg.NoNetworkWorkaround},
 		"system":    systemText(),
 		"recent":    u.a.Recent(),
 		"update":    u.a.UpdateState(),
@@ -553,6 +555,16 @@ func (u *ui) games(r *http.Request) (any, error) {
 		return nil, err
 	}
 	u.a.Update(func(c *Config) { c.NoGameNotes = !in.On })
+	return map[string]bool{"ok": true}, nil
+}
+
+// network: the workaround for networks that block hotsdash.com (netfix.go), on or off.
+func (u *ui) network(r *http.Request) (any, error) {
+	var in struct{ On bool }
+	if err := body(r, &in); err != nil {
+		return nil, err
+	}
+	u.a.Update(func(c *Config) { c.NoNetworkWorkaround = !in.On })
 	return map[string]bool{"ok": true}, nil
 }
 

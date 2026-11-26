@@ -45,6 +45,17 @@ Copies installed before this repository existed carry on as they were: the saved
 as before, and the old settings appended to the `.exe` (a `HDCFG001` trailer) or the `hots-dash-setup.json` beside the
 program are still understood.
 
+## Networks that block hotsdash.com
+
+Some internet providers' web filters, routers, VPNs and antivirus web protection answer for `hotsdash.com` with a block
+page of their own. When that happens the uploader looks the address up over DNS-over-HTTPS (Cloudflare at `1.1.1.1`,
+then Google at `8.8.8.8`) and connects there, hiding the name from the network with Encrypted Client Hello where it can.
+The certificate is still checked for `hotsdash.com`, so this only ever reaches the real dashboard.
+
+It's only done for `hotsdash.com`, never for another dashboard or for GitHub. It's on by default; to turn it off, switch
+off **Get around networks that block hotsdash.com** in the settings page (`"noNetworkWorkaround": true` in
+`config.json`).
+
 ## Where things are
 
 | | Windows | Linux | macOS |

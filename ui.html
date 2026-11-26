@@ -170,6 +170,8 @@
       <p class="small muted" id="sysWhere">The uploader sits by the clock and keeps sending new replays as you play.</p>
       <label class="switch" id="autoWrap"><input type="checkbox" id="auto"><span class="track"></span><span id="sysStart">Start with Windows</span></label>
       <label class="switch" style="margin-top:10px" id="updAutoWrap"><input type="checkbox" id="updAuto"><span class="track"></span><span>Update automatically</span></label>
+      <label class="switch" style="margin-top:10px"><input type="checkbox" id="network"><span class="track"></span><span>Get around networks that block hotsdash.com</span></label>
+      <p class="small muted" style="margin:4px 0 0">For hotsdash.com only: if your network answers in its place, the uploader looks up its address over encrypted DNS (DNS-over-HTTPS) and, where it can, hides its name while connecting (Encrypted Client Hello), still checking its certificate.</p>
       <p class="small" style="margin:10px 0 0" id="updText"></p>
       <p class="small" style="margin:10px 0 0"><button class="link" id="log">Show the log file</button> · <span class="muted" id="ver"></span></p>
     </section>
@@ -233,6 +235,7 @@ function render(s) {
   renderRejoin(s);
   $('live').checked = s.live.on;
   $('games').checked = s.games.on;
+  $('network').checked = s.network.on;
   $('lastGame').textContent = s.status.lastGame ? 'Last game: ' + s.status.lastGame : '';
   $('lastLobby').textContent = s.status.lastLobby ? `Last game: ${s.status.lastLobby}` : '';
   $('gameClient').textContent = s.status.client || '';
@@ -345,6 +348,7 @@ $('live').onchange = (e) => act('live', { on: e.target.checked });
 $('rejoinAll').onclick = () => rj({ action: 'useAll' });
 $('rejoinPick').onclick = () => rj({ action: 'pick' });
 $('games').onchange = (e) => act('games', { on: e.target.checked });
+$('network').onchange = (e) => act('network', { on: e.target.checked });
 $('auto').onchange = (e) => act('autostart', { on: e.target.checked });
 $('updAuto').onchange = (e) => act('update', { action: 'auto', on: e.target.checked });
 document.addEventListener('click', (e) => {

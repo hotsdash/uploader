@@ -54,6 +54,9 @@ type Config struct {
 	NoGameNotes bool `json:"noGameNotes,omitempty"`
 	// NoAutoUpdate: say when a new version is ready instead of updating by itself
 	NoAutoUpdate bool `json:"noAutoUpdate,omitempty"`
+	// NoNetworkWorkaround: don't go around a network that answers for hotsdash.com (netfix.go). Off by default,
+	// so settings saved before it carry on as they did
+	NoNetworkWorkaround bool `json:"noNetworkWorkaround,omitempty"`
 	// MoveDismissed: another site the dashboard said it moved to, which the person chose not to switch to
 	MoveDismissed   string `json:"moveDismissed,omitempty"`
 	MoveDismissedAt int64  `json:"moveDismissedAt,omitempty"` // when (unix seconds): suggested again after moveSnooze
@@ -180,6 +183,7 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 	tr := newFallbackTransport() // copes with networks that intercept the dashboard (netfix.go)
 	a := &Agent{cfg: cfg, dir: dir, log: logger, client: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 		files: map[string]*fileState{}, kick: make(chan struct{}, 1), lobbySeen: map[string]time.Time{}}
+	tr.allow = a.goAround
 	tr.OnFallback = func(host string, ips []string, ech bool) {
 		how := ""
 		if ech {
@@ -190,6 +194,13 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 	a.client.CheckRedirect = apiRedirect
 	a.loadState()
 	return a
+}
+
+// goAround: whether the network workaround may be used for a host: only the public dashboard's, and only while
+// it isn't switched off in Settings.
+func (a *Agent) goAround(host string) bool {
+	u, err := url.Parse(defaultServer)
+	return err == nil && strings.EqualFold(host, u.Hostname()) && !a.Config().NoNetworkWorkaround
 }
 
 func (a *Agent) Config() Config {

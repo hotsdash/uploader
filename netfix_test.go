@@ -42,6 +42,7 @@ func interceptSetup(t *testing.T, resolve func(context.Context, string) (route, 
 		},
 	}
 	f := newFallbackTransportWith(base, cfg, resolve)
+	f.allow = func(string) bool { return true }
 	// the test certificate is for example.com
 	return f, "https://example.com:" + port, &hits
 }
@@ -128,6 +129,7 @@ func TestNormalNetworkUntouched(t *testing.T) {
 		t.Fatal("no lookup expected")
 		return route{}, nil
 	})
+	f.allow = func(string) bool { return true }
 	res, err := (&http.Client{Transport: f}).Get(real.URL)
 	if err != nil {
 		t.Fatal(err)
