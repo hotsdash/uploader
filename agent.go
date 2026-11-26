@@ -942,7 +942,7 @@ func (a *Agent) followGame(replayID int64) {
 		a.event("%s: %s", s.Title, strings.Join(lines, "; "))
 		a.setStatus(func(st *Status) { st.LastGame = s.Title })
 		if a.Notify != nil && !a.Config().NoGameNotes {
-			open, ask := reviewLink(a.cfg.Server, s)
+			open, ask := reviewLink(a.Config().Server, s)
 			if ask != "" {
 				lines = append(lines, ask)
 			}
@@ -1023,7 +1023,7 @@ func (a *Agent) region() *int {
 
 func (a *Agent) lobbyFiles() map[string]time.Time {
 	out := map[string]time.Time{}
-	root := a.cfg.Lobby
+	root := a.Config().Lobby
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -1152,7 +1152,7 @@ func (a *Agent) reportLobby(tags []string, file []byte) {
 		if len(alerts) > 0 {
 			title = "Heads up: " + summary
 		}
-		a.Notify(title, strings.Join(lines, "\n"), a.cfg.Server+"/live")
+		a.Notify(title, strings.Join(lines, "\n"), a.Config().Server+"/live")
 	}
 }
 
@@ -1212,7 +1212,7 @@ func reviewedNote(server string, n reviewedNotice) (title, message, open string)
 // showReviewed tells you about reviews of you, as game notifications are (not when those are turned off).
 func (a *Agent) showReviewed(notices []reviewedNotice) {
 	for _, n := range notices {
-		title, message, open := reviewedNote(a.cfg.Server, n)
+		title, message, open := reviewedNote(a.Config().Server, n)
 		a.event("%s", title)
 		if a.Notify != nil && !a.Config().NoGameNotes {
 			a.Notify(title, message, open)
@@ -1225,7 +1225,7 @@ func (a *Agent) showReviewed(notices []reviewedNotice) {
 // Run syncs now, then keeps checking for new replays (a full scan every 30s, plus a quick look whenever the system says a
 // replay folder changed, watch.go) and games loading (every 2s) until stop closes.
 func (a *Agent) Run(stop <-chan struct{}) {
-	a.event("Started: uploading to %s from %d folder%s", a.cfg.Server, len(a.enabledFolders()), plural(len(a.enabledFolders())))
+	a.event("Started: uploading to %s from %d folder%s", a.Config().Server, len(a.enabledFolders()), plural(len(a.enabledFolders())))
 	a.setStatus(func(s *Status) { s.Text = "Starting…" })
 	go func() { _ = a.Sync() }()
 	go a.updateLoop(stop)
