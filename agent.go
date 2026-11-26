@@ -75,6 +75,10 @@ type fileState struct {
 	Key  string `json:"key"` // size:mtime, so unchanged files aren't hashed again
 	Hash string `json:"hash"`
 	Sent bool   `json:"sent"`
+	// for a replay the dashboard didn't accept: how many times, and when to try again (unix ms). A changed file
+	// gets a new fileState, so it starts again.
+	Fails   int   `json:"fails,omitempty"`
+	RetryAt int64 `json:"retryAt,omitempty"`
 }
 
 // Event is a line in the recent activity list.
@@ -469,10 +473,53 @@ func (a *Agent) markSent(p string) {
 	a.forgetSeen(p)
 	a.mu.Lock()
 	if f := a.files[p]; f != nil && !f.Sent {
-		f.Sent = true
+		f.Sent, f.Fails, f.RetryAt = true, 0, 0
 		a.dirty = true
 	}
 	a.mu.Unlock()
+}
+
+// retryAfter: how long to wait after the first, second… time a replay isn't accepted. One that's turned down once
+// more after the last wait isn't sent again.
+var retryAfter = []time.Duration{time.Minute, 10 * time.Minute, time.Hour, 6 * time.Hour}
+
+var maxFails = len(retryAfter) + 1
+
+// markFailed notes that a replay (every copy of it) wasn't accepted. refused is the dashboard saying no; without it
+// (no answer for this file) it's retried for as long as it takes. True when this was the last try.
+func (a *Agent) markFailed(paths []string, refused bool) (gaveUp bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for _, p := range paths {
+		if f := a.files[p]; f != nil {
+			n = max(n, f.Fails)
+		}
+	}
+	n++
+	if !refused {
+		n = min(n, maxFails-1)
+	}
+	until := time.Now().Add(retryAfter[min(n, len(retryAfter))-1]).UnixMilli()
+	for _, p := range paths {
+		if f := a.files[p]; f != nil {
+			f.Fails, f.RetryAt = n, until
+			a.dirty = true
+		}
+	}
+	return n >= maxFails
+}
+
+// heldBack: a replay that wasn't accepted and isn't due another try (or has had its last).
+func (a *Agent) heldBack(paths []string, now time.Time) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, p := range paths {
+		if f := a.files[p]; f != nil && (f.Fails >= maxFails || now.UnixMilli() < f.RetryAt) {
+			return true
+		}
+	}
+	return false
 }
 
 type uploadResult struct {
@@ -482,18 +529,69 @@ type uploadResult struct {
 	ReplayID int64  `json:"replayId"`
 }
 
-func (a *Agent) uploadBatch(paths []string) ([]uploadResult, error) {
+// refusedStatuses: the upload results that mean the dashboard didn't take a file. Any other status counts as
+// accepted, unless the result carries an error. Only "queued" and "known" are known to be sent by the server; the
+// full set is unconfirmed, so check this list against it.
+var refusedStatuses = map[string]bool{"error": true, "failed": true, "rejected": true, "invalid": true}
+
+func (r uploadResult) accepted() bool {
+	return r.Error == "" && !refusedStatuses[strings.ToLower(r.Status)]
+}
+
+// uploadName: the file name a replay is uploaded under, which its result comes back with.
+func uploadName(p string) string { return strings.ReplaceAll(filepath.Base(p), `"`, "") }
+
+// matchResults pairs the dashboard's results with the files that were sent: by file name, and where names are
+// missing or shared by position, but only when there's a result for every file. A file with no result of its own
+// gets nil.
+func matchResults(sent []string, results []uploadResult) map[string]*uploadResult {
+	files, answers := map[string]int{}, map[string]int{}
+	for _, p := range sent {
+		files[uploadName(p)]++
+	}
+	byName := map[string]int{} // file name → its result
+	for i, r := range results {
+		answers[r.FileName]++
+		byName[r.FileName] = i
+	}
+	out := map[string]*uploadResult{}
+	used := make([]bool, len(results))
+	for _, p := range sent {
+		out[p] = nil
+		n := uploadName(p)
+		if i, ok := byName[n]; ok && files[n] == 1 && answers[n] == 1 {
+			out[p], used[i] = &results[i], true
+		}
+	}
+	if len(results) != len(sent) {
+		return out
+	}
+	for i, p := range sent {
+		// not one that names another of the files
+		if out[p] == nil && !used[i] && (results[i].FileName == uploadName(p) || files[results[i].FileName] == 0) {
+			out[p] = &results[i]
+		}
+	}
+	return out
+}
+
+// uploadBatch sends these replays. The map has an entry for each one that was sent (not those that couldn't be
+// read), holding the dashboard's result for it, or nil if it gave none.
+func (a *Agent) uploadBatch(paths []string) (map[string]*uploadResult, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("source", "agent")
+	var sent []string
 	for _, p := range paths {
 		b, err := os.ReadFile(p)
 		if err != nil {
+			a.log.Printf("can't read %s: %v", filepath.Base(p), err)
 			continue
 		}
+		sent = append(sent, p)
 		st, _ := os.Stat(p)
 		h := make(textproto.MIMEHeader)
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="files"; filename="%s"`, strings.ReplaceAll(filepath.Base(p), `"`, "")))
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="files"; filename="%s"`, uploadName(p)))
 		h.Set("Content-Type", "application/octet-stream")
 		part, _ := w.CreatePart(h)
 		_, _ = part.Write(b)
@@ -504,6 +602,9 @@ func (a *Agent) uploadBatch(paths []string) ([]uploadResult, error) {
 		seenAt, how := a.seenFields(p)
 		_ = w.WriteField("seen", seenAt)
 		_ = w.WriteField("found", how)
+	}
+	if len(sent) == 0 {
+		return nil, nil
 	}
 	// when sending began, and how far our clock is from the dashboard's (Admin › Game delays)
 	_ = w.WriteField("sentAt", time.Now().UTC().Format(timeLayout))
@@ -517,10 +618,7 @@ func (a *Agent) uploadBatch(paths []string) ([]uploadResult, error) {
 	if err := a.call("POST", "replays", &buf, w.FormDataContentType(), &out); err != nil {
 		return nil, err
 	}
-	for _, p := range paths {
-		a.markSent(p)
-	}
-	return out.Results, nil
+	return matchResults(sent, out.Results), nil
 }
 
 // sharedPath: the part of a replay's path the dashboard gets, from the Battle.net account folder on
@@ -620,7 +718,7 @@ func (a *Agent) Sync() error {
 			for _, p := range byHash[h] {
 				a.markSent(p)
 			}
-		} else {
+		} else if !a.heldBack(byHash[h], scanAt) {
 			pending = append(pending, h)
 		}
 	}
@@ -672,7 +770,7 @@ func (a *Agent) Sync() error {
 	// newest games first: the server shares its reader out one turn per person, and your latest games are the ones you want to see
 	sort.SliceStable(unknown, func(i, j int) bool { return modOf[unknown[i]].After(modOf[unknown[j]]) })
 
-	added := 0
+	accepted, added := 0, 0
 	for i := 0; i < len(unknown); i += 10 {
 		a.setStatus(func(s *Status) { s.Text = fmt.Sprintf("Uploading %d of %d…", i+1, len(unknown)); s.Problem = false })
 		batch := unknown[i:min(i+10, len(unknown))]
@@ -685,18 +783,35 @@ func (a *Agent) Sync() error {
 			a.problem(err)
 			return err
 		}
-		for _, h := range batch {
-			for _, p := range byHash[h] {
-				a.markSent(p)
-			}
-		}
-		for j, r := range res {
-			if r.Status == "queued" {
-				added++
-				// a game that just finished: tell them how it went once the server has read it
-				if j < len(paths) && r.ReplayID > 0 {
-					if st, err := os.Stat(paths[j]); err == nil && time.Since(st.ModTime()) < 20*time.Minute {
-						go a.followGame(r.ReplayID)
+		for j, h := range batch {
+			p := paths[j]
+			r, sent := res[p]
+			switch {
+			case !sent: // couldn't be read: the next scan looks again
+			case r == nil:
+				a.log.Printf("no result from the dashboard for %s: trying again later", filepath.Base(p))
+				a.markFailed(byHash[h], false)
+			case !r.accepted():
+				why := r.Error
+				if why == "" {
+					why = r.Status
+				}
+				a.log.Printf("%s wasn't accepted: %s", filepath.Base(p), why)
+				if a.markFailed(byHash[h], true) {
+					a.event("%s was turned down by the dashboard: %s", filepath.Base(p), why)
+				}
+			default:
+				for _, same := range byHash[h] {
+					a.markSent(same)
+				}
+				accepted++
+				if r.Status == "queued" {
+					added++
+					// a game that just finished: tell them how it went once the server has read it
+					if r.ReplayID > 0 {
+						if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < 20*time.Minute {
+							go a.followGame(r.ReplayID)
+						}
 					}
 				}
 			}
@@ -705,8 +820,8 @@ func (a *Agent) Sync() error {
 			a.saveState()
 		}
 	}
-	if len(unknown) > 0 {
-		a.event("Uploaded %d replay%s (%d new to the dashboard)", len(unknown), plural(len(unknown)), added)
+	if accepted > 0 {
+		a.event("Uploaded %d replay%s (%d new to the dashboard)", accepted, plural(accepted), added)
 	}
 	// recount what's sent now, per folder
 	a.mu.Lock()
