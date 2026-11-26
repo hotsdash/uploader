@@ -98,6 +98,8 @@ Whoever serves the bytes, the copy refuses the update unless all of these hold:
 So the dashboard decides what's "latest" (and can hold a release back or roll back), but can't hand out a program that
 wasn't signed with a trusted key.
 
+To report a security problem, privately, see [SECURITY.md](SECURITY.md).
+
 A copy with a version but no key built in (e.g. `scripts/build.sh` without `UPLOADER_SIGNING_KEY` or `UPLOADER_PUBKEY`)
 can't check signatures, so it never updates itself: it says a new version is ready, to be downloaded from the
 dashboard. Only a build from source (`dev`) goes without the signature check, and it never updates by itself.
