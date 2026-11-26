@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -37,8 +38,16 @@ func onSite(u, server string) bool {
 	}
 	a, _ := url.Parse(u)
 	b, _ := url.Parse(server)
-	base := strings.TrimRight(b.Path, "/")
-	return a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host) && (a.Path == base || strings.HasPrefix(a.Path, base+"/"))
+	// a ".." would take the browser or the proxy out from under the path being checked. Path is already decoded, so
+	// this sees %2e%2e too, and a ".." hidden behind an encoded slash.
+	for _, seg := range strings.FieldsFunc(a.Path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return false
+		}
+	}
+	base := strings.TrimRight(path.Clean("/"+b.Path), "/") // "" for a dashboard at the root
+	p := path.Clean("/" + a.Path)
+	return a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host) && (p == base || strings.HasPrefix(p, base+"/"))
 }
 
 // openURL opens a web address in the browser (a variable so tests can swap in a recorder: main_test.go TestMain
