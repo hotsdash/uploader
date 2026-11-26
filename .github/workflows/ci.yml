@@ -16,29 +16,54 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-go@v5.5.0
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
       - name: gofmt
         if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
-      - run: go test ./...
+      - name: test, with the race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      # -race needs cgo and a C compiler, which nothing else here does on Windows
+      - name: test
+        if: runner.os != 'Linux'
+        run: go test ./...
+      # known vulnerabilities the code can actually reach, in Go's own library too. It checks the system it runs on,
+      # so each system in the matrix gets a look.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
 
   build:
     # every platform builds (cross-compiled from Linux), with the flags a release uses
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-go@v5.5.0
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
           go-version-file: go.mod
       - name: vet for the other systems
         run: |
           GOOS=windows go vet ./...
           GOOS=darwin go vet ./...
-      - name: build all platforms (unsigned)
-        run: scripts/build.sh
+      - name: build all platforms (unsigned, with made-up public keys)
+        env:
+          # not anyone's keys: only there to see that they end up in the programs
+          UPLOADER_PUBKEY: "1111111111111111111111111111111111111111111111111111111111111111"
+          UPLOADER_BACKUP_PUBKEY: "2222222222222222222222222222222222222222222222222222222222222222"
+          VERSION: "2000.01.01.0000"
+        run: |
+          scripts/build.sh
+          # a release without its keys could never update itself (go version -m doesn't show -X, so look in the file)
+          for f in hots-dash-uploader.exe hots-dash-uploader-linux-amd64 hots-dash-uploader-linux-arm64 hots-dash-uploader-macos; do
+            grep -aqF "$UPLOADER_PUBKEY,$UPLOADER_BACKUP_PUBKEY" "dist/$f" || { echo "::error::$f was built without the update keys"; exit 1; }
+          done
+          # notifications and the Start menu shortcut go through COM: a PowerShell call coming back would make the
+          # program look like malware to antivirus again (as plain text or as Windows' UTF-16)
+          if grep -aqi powershell dist/hots-dash-uploader.exe || strings -el dist/hots-dash-uploader.exe | grep -qi powershell; then
+            echo "::error::the Windows program mentions PowerShell again"; exit 1
+          fi
       - name: the archives and latest.json come out (unsigned)
         run: UNSIGNED=1 scripts/package.sh && cat dist/latest.json

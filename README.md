@@ -5,6 +5,10 @@ program that sits by the clock (Windows), or runs in the background (Linux, macO
 every replay once, keeps uploading new ones as you play, and tells you who you've met before when a game loads. It
 keeps itself up to date.
 
+A replay only counts as sent once the dashboard has accepted it. One it turns down is tried again after a minute,
+10 minutes, an hour and 6 hours; after the fifth refusal it's left alone (until the file changes), and Recent activity
+says why.
+
 This is the whole program: a single Go module with no cgo, built for Windows, Linux (x86-64 and ARM) and macOS
 (one universal program).
 
@@ -23,7 +27,8 @@ Every download of a version is the same file for everyone, byte for byte.
 ## How sign-in works
 
 Nothing is set up in the download. The uploader uploads to `https://hotsdash.com` by default; to use another
-dashboard (self-hosting), change the address in its settings page, or start it with `-server https://your.dashboard`.
+dashboard (self-hosting) on Linux or macOS, start it with `-server https://your.dashboard`, which runs it in that
+terminal.
 
 The first time it runs (and isn't signed in) it signs in like a TV app:
 
@@ -41,6 +46,29 @@ Copies installed before this repository existed carry on as they were: the saved
 as before, and the old settings appended to the `.exe` (a `HDCFG001` trailer) or the `hots-dash-setup.json` beside the
 program are still understood.
 
+## Running it with your own token
+
+With `-server`, the uploader runs in the terminal and takes an upload token from the `HOTSDASH_TOKEN` environment
+variable (Linux and macOS):
+
+```sh
+read -rs HOTSDASH_TOKEN && export HOTSDASH_TOKEN    # paste the token; it isn't shown or kept in shell history
+hots-dash-uploader -server https://your.dashboard
+```
+
+`--token` still works, but other programs on the computer can see a command line, so it prints a warning.
+
+## Networks that block hotsdash.com
+
+Some internet providers' web filters, routers, VPNs and antivirus web protection answer for `hotsdash.com` with a block
+page of their own. When that happens the uploader looks the address up over DNS-over-HTTPS (Cloudflare at `1.1.1.1`,
+then Google at `8.8.8.8`) and connects there, hiding the name from the network with Encrypted Client Hello where it can.
+The certificate is still checked for `hotsdash.com`, so this only ever reaches the real dashboard.
+
+It's only done for `hotsdash.com`, never for another dashboard or for GitHub. It's on by default; to turn it off, switch
+off **Get around networks that block hotsdash.com** in the settings page (`"noNetworkWorkaround": true` in
+`config.json`).
+
 ## Where things are
 
 | | Windows | Linux | macOS |
@@ -48,18 +76,50 @@ program are still understood.
 | program | `%LOCALAPPDATA%\Programs\hots-dash\` | `~/.local/bin/hots-dash-uploader` | app folder (`~/Library/Application Support/hots-dash`) |
 | settings (`config.json`), state, log | `%APPDATA%\hots-dash` | `~/.config/hots-dash` | `~/Library/Application Support/hots-dash` |
 
-(See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
+On Linux and macOS the settings folder and the log are readable by you only.
+
+(See `tray_windows.go` and `platform_unix.go` in `cmd/hots-dash-uploader` for the exact paths and the autostart entries.)
+
+On Windows it also adds a Start menu shortcut, and registers its name for notifications under
+`HKCU\Software\Classes\AppUserModelId\HotsDash.Uploader`. Notifications are listed as "hots-dash uploader" in
+Windows' notification settings, where they can be turned off.
+
+On Linux the game runs in Wine, so the check on who's in a game looks for the lobby file inside the Wine prefix your
+replay folder is in, found when the uploader starts. With no replay folder in a prefix there's no check; `-lobby DIR`
+names the folder yourself (anything but `/tmp/Heroes of the Storm`, which is never used).
+
+## When the dashboard moves
+
+The version answer can name the dashboard's own address. If that's a different one, the uploader checks something
+answers there and then asks you in Settings before switching (the step from http to https on the same address switches
+by itself). It only tries a public https name, never an IP address, `localhost`, a `*.local` name or one without a dot,
+and each address no more than once a day. To use such an address, start the uploader with `-server`.
 
 ## Build
 
-Go 1.26 or newer; no other tools.
+Go 1.26 or newer; no other tools to install.
 
 ```sh
 go vet ./...
 go test ./...
-go build .                    # for this computer
-scripts/build.sh              # every platform into dist/ (VERSION=2026.11.25.1430 to set the version)
+go build ./cmd/hots-dash-uploader   # for this computer
+scripts/build.sh                    # every platform into dist/ (VERSION=2026.11.25.1430 to set the version)
 ```
+
+`scripts/build.sh` gives the Windows program its icon and file details (company, product, description, version; see
+`winres/winres.json`) with [go-winres](https://github.com/tc-hib/go-winres), at a pinned version that `go run`
+downloads the first time. A plain `go build` leaves them out.
+
+To build and install it with Go alone (a `dev` build, without the icon and file details; add
+`-ldflags -H=windowsgui` on Windows to leave out the console window):
+
+```sh
+go install github.com/hotsdash/uploader/cmd/hots-dash-uploader@latest
+```
+
+The program is in `cmd/hots-dash-uploader` (start-up, install, tray). What it does is under `internal/`: `agent`
+(sync, lobby, sign-in, updates, settings page), `netfix` (networks that block the dashboard), `links` (what may be
+opened), `winshell` (Windows notifications and shortcut) and `updatesig` (what an update's signature covers).
 
 Versions are the build time in UTC, `YYYY.MM.DD.HHMM`; a bigger one is newer. A build from source is version `dev`,
 which never updates itself.
@@ -69,33 +129,92 @@ which never updates itself.
 Installed copies don't look at GitHub. Every few hours they ask the dashboard they upload to (`{server}/api/uploader/version`)
 what the newest version is, and download it from `{server}/api/uploader/update`, which the dashboard may redirect to a
 release file here (the uploader follows redirects only to https on the dashboard's own host, `github.com` and
-`*.githubusercontent.com`). Whoever serves the bytes, the copy refuses the update unless all of these hold:
+`*.githubusercontent.com`). When the version answer carries the `url` of a release file of this project, that is
+fetched first; if it can't be had (an error, or anything but 200), `{server}/api/uploader/update` is asked once instead.
+Whoever serves the bytes, the copy refuses the update unless all of these hold:
 
 - the size and SHA-256 match what the dashboard announced;
-- the Ed25519 signature over the version and that SHA-256 (`updatesig.Message`) verifies against the public key built
-  into the running program (`main.updateKey`);
+- an Ed25519 signature over the version and that SHA-256 verifies against one of the public keys built into the
+  running program (`internal/agent.updateKey`). When the dashboard passes on `signatureV2`, which names the platform as well
+  (`updatesig.MessageV2`), that one has to verify for the running system; without it, `signature`
+  (`updatesig.Message`) does;
 - the file is a program for this system.
 
 So the dashboard decides what's "latest" (and can hold a release back or roll back), but can't hand out a program that
-wasn't signed with the release key.
+wasn't signed with a trusted key.
 
-A release (`Actions → Release`, run by hand) builds everything with `-trimpath`, signs each program with the key in the
-`UPLOADER_SIGNING_KEY` secret (a base64 seed made by `go run ./tools/sign keygen`; the release fails without it), and
-publishes, under the tag `v<version>`:
+To report a security problem, privately, see [SECURITY.md](SECURITY.md).
+
+A copy with a version but no key built in (e.g. `scripts/build.sh` without `UPLOADER_SIGNING_KEY` or `UPLOADER_PUBKEY`)
+can't check signatures, so it never updates itself: it says a new version is ready, to be downloaded from the
+dashboard. Only a build from source (`dev`) goes without the signature check, and it never updates by itself.
+
+### The two keys
+
+A release has two public keys built in, comma-separated in `internal/agent.updateKey`:
+
+- the **release key**: `UPLOADER_PUBKEY` (a repository variable, required), the public half of the
+  `UPLOADER_SIGNING_KEY` secret that signs releases. The release fails if the two don't match;
+- the **backup key**: `UPLOADER_BACKUP_PUBKEY` (a repository variable, required). Its private half is kept offline,
+  away from GitHub, and only used if the release key is lost or leaked.
+
+If a key is compromised, retire it with a release signed by the other:
+
+1. Make a new key pair (`go run ./tools/sign keygen`, then `pub`) and keep it offline.
+2. If it's the release key: set the `UPLOADER_SIGNING_KEY` secret to the backup private key, `UPLOADER_PUBKEY` to the
+   backup public key and `UPLOADER_BACKUP_PUBKEY` to the new public key. If it's the backup key: only set
+   `UPLOADER_BACKUP_PUBKEY` to the new public key.
+3. Release. Copies that update to it no longer trust the old key; copies that haven't updated yet still do, so get
+   the dashboard to hand it out promptly.
+
+Copies from before there was a backup key (`2026.11.24.…`) trust only the first release key: they can only be moved on
+by a release signed with it, or by downloading the new version again.
+
+A release (`Actions → Release`, run by hand, from `main`) is three jobs, each with only what it needs:
+
+1. **build** tests, then builds everything with `-trimpath` and the two public keys. No secrets.
+2. **sign** runs in the `release` environment, the only place the `UPLOADER_SIGNING_KEY` secret can be read (a base64
+   seed made by `go run ./tools/sign keygen`). It signs each program and makes the archives and `latest.json`.
+3. **publish**, the only job that can write to the repository, records the build provenance and creates the release.
+
+It fails without the secret or either public key, and publishes, under the tag `v<version>`:
 
 | asset | what |
 |---|---|
 | `hots-dash-uploader.exe` | Windows: the program, and the first download |
 | `hots-dash-uploader-linux-amd64`, `-linux-arm64`, `-macos` | the bare programs the updater fetches |
 | `hots-dash-uploader-linux-amd64.tar.gz`, `-linux-arm64.tar.gz`, `-macos.tar.gz` | first downloads: the program in a folder, made the same every time (fixed dates and owner) |
-| `latest.json` | the version and, per system, the program's name, size, SHA-256 and Ed25519 signature, and the download file |
+| `latest.json` | the version and, per system, the program's name, size, SHA-256 and Ed25519 signatures, and the download file |
 
 ```json
-{"version":"2026.11.25.1430","files":{"windows":{"program":{"name":"hots-dash-uploader.exe","size":0,"sha256":"…","signature":"…"},"download":"hots-dash-uploader.exe"}, "linux-amd64":{…}, "linux-arm64":{…}, "macos":{…}}}
+{"version":"2026.11.25.1430","files":{"windows":{"program":{"name":"hots-dash-uploader.exe","size":0,"sha256":"…","signature":"…","signatureV2":"…"},"download":"hots-dash-uploader.exe"}, "linux-amd64":{…}, "linux-arm64":{…}, "macos":{…}}}
 ```
 
-To check a download yourself: compare its SHA-256 with `latest.json`, and verify the signature over
-`updatesig.Message(version, sha256)` with the public key (`go run ./tools/sign pub -key KEY` prints it; the key is built
-into every release's program as `main.updateKey`).
+Each program is signed twice (`scripts/sign.sh`):
+
+| signature | signs these lines (each ends with a newline; the hash in lower-case hex) |
+|---|---|
+| `signature` (v1, `<program>.sig`), for copies already installed | `hots-dash-uploader update` / `version <version>` / `sha256 <hash>` |
+| `signatureV2` (`<program>.sig2`) | `hots-dash-uploader update v2` / `version <version>` / `platform <platform>` / `sha256 <hash>` |
+
+The platform is the program's key in `latest.json`: `windows`, `linux-amd64`, `linux-arm64` or `macos`.
+
+To check a download yourself: compare its SHA-256 with `latest.json`, and verify a signature over
+`updatesig.Message(version, sha256)` or `updatesig.MessageV2(version, sha256, platform)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
+built into every release's program, first in `internal/agent.updateKey`).
+
+Releases made while the repository is public also carry build provenance: GitHub's signed record of which workflow run,
+at which commit, produced each file. To check a downloaded file with the GitHub CLI:
+
+```sh
+gh attestation verify <file> --repo hotsdash/uploader
+```
+
+A release made while the repository was private has none, and the command says so by failing. Installed copies don't
+look at it: they go by the signatures above.
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.
+
+## Privacy
+
+What the uploader sends, when, and how to turn it off: [PRIVACY.md](PRIVACY.md) (a draft, still to be reviewed).
