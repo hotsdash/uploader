@@ -203,3 +203,7 @@ A release made while the repository was private has none, and the command says s
 look at it: they go by the signatures above.
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.
+
+## Privacy
+
+What the uploader sends, when, and how to turn it off: [PRIVACY.md](PRIVACY.md) (a draft, still to be reviewed).
