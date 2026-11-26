@@ -284,3 +284,51 @@ func TestMatchResults(t *testing.T) {
 		}
 	}
 }
+
+func hasState(a *Agent, p string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.files[p] != nil
+}
+
+func TestDeletedFilesArePrunedButNotThoseInAMissingFolder(t *testing.T) {
+	game, backup := t.TempDir(), filepath.Join(t.TempDir(), "drive")
+	kept, deleted := filepath.Join(game, "kept.StormReplay"), filepath.Join(game, "sub", "deleted.StormReplay")
+	away := filepath.Join(backup, "away.StormReplay")
+	writeReplay(t, kept, "kept")
+	writeReplay(t, deleted, "deleted")
+	writeReplay(t, away, "away")
+	a := syncAgent(t, &uploadDash{reply: answer(nil)}, game, backup)
+	mustSync(t, a)
+
+	if err := os.RemoveAll(filepath.Dir(deleted)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(backup); err != nil { // unplugged
+		t.Fatal(err)
+	}
+	mustSync(t, a)
+	if hasState(a, deleted) {
+		t.Error("the deleted file is still remembered")
+	}
+	if !hasState(a, kept) || !isSent(a, away) {
+		t.Error("forgot a file that's there, or one in a folder that's missing")
+	}
+	if b := NewAgent(a.Config(), a.dir, log.New(io.Discard, "", 0)); hasState(b, deleted) || !hasState(b, away) {
+		t.Error("the pruned state wasn't saved")
+	}
+}
+
+func TestPruneKeepsWhatItCannotJudge(t *testing.T) {
+	root := t.TempDir()
+	inner := filepath.Join(root, "backup") // a configured folder inside another one, missing
+	gone := filepath.Join(inner, "x.StormReplay")
+	elsewhere := filepath.Join(t.TempDir(), "y.StormReplay") // in no folder that was scanned
+	a := syncAgent(t, &uploadDash{reply: answer(nil)}, root, inner)
+	a.files[gone] = &fileState{Sent: true}
+	a.files[elsewhere] = &fileState{Sent: true}
+	mustSync(t, a)
+	if !hasState(a, gone) || !hasState(a, elsewhere) {
+		t.Fatalf("pruned: in a missing folder %v, outside the folders %v", !hasState(a, gone), !hasState(a, elsewhere))
+	}
+}

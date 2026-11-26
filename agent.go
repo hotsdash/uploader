@@ -621,6 +621,42 @@ func (a *Agent) uploadBatch(paths []string) (map[string]*uploadResult, error) {
 	return matchResults(sent, out.Results), nil
 }
 
+// pruneState forgets files that have been deleted: in a folder that was scanned, not seen, and not there any more.
+// Nothing in a folder that was missing is touched (an unplugged backup drive comes back as it was).
+func (a *Agent) pruneState(scanned, missing, found []string) {
+	seen := map[string]bool{}
+	for _, p := range found {
+		seen[p] = true
+	}
+	inAny := func(p string, dirs []string) bool {
+		for _, d := range dirs {
+			if rel, err := filepath.Rel(d, p); err == nil && filepath.IsLocal(rel) {
+				return true
+			}
+		}
+		return false
+	}
+	var unseen []string
+	a.mu.Lock()
+	for p := range a.files {
+		if !seen[p] && inAny(p, scanned) && !inAny(p, missing) {
+			unseen = append(unseen, p)
+		}
+	}
+	a.mu.Unlock()
+	for _, p := range unseen {
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+			continue // still there, or can't tell
+		}
+		a.forgetSeen(p)
+		a.mu.Lock()
+		delete(a.files, p)
+		delete(a.tooBig, p)
+		a.dirty = true
+		a.mu.Unlock()
+	}
+}
+
 // sharedPath: the part of a replay's path the dashboard gets, from the Battle.net account folder on
 // (2-Hero-1-269807\Replays\Multiplayer\x.StormReplay), which is what links the account to you. Never the rest:
 // that holds the Windows user name and folder layout. A replay outside an account folder is sent by name only.
@@ -666,14 +702,19 @@ func (a *Agent) Sync() error {
 	scanAt := time.Now()
 	folders := a.enabledFolders()
 	var allPaths []string
+	var found []string            // every replay listed, readable or not
+	var scanned, missing []string // folders that were there this time, and those that weren't
 	for _, dir := range folders {
 		fs := &FolderStats{}
 		stats.Folders[dir] = fs
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			missing = append(missing, dir)
 			continue
 		}
 		fs.Exists = true
+		scanned = append(scanned, dir)
 		for _, p := range walkReplays(dir) {
+			found = append(found, p)
 			f, st, err := a.hashFile(p)
 			if err != nil {
 				continue
@@ -703,6 +744,7 @@ func (a *Agent) Sync() error {
 			}
 		}
 	}
+	a.pruneState(scanned, missing, found)
 	// a hash already sent from any folder counts as sent everywhere
 	pending := order[:0]
 	for _, h := range order {
