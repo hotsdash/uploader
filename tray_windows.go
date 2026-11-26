@@ -68,22 +68,25 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
 	}
-	if err := out.Close(); err != nil {
-		return err
+	if err == nil {
+		err = os.Rename(tmp, dst) // replaces dst: removing it first could leave no program at all
 	}
-	_ = os.Remove(dst)
-	return os.Rename(tmp, dst)
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
-// stopRunning asks a running copy to quit (so a fresh download can replace it) and waits for it.
+// stopRunning asks a running copy to quit (so a fresh download can replace it) and waits for it. False means it's
+// still running.
 func stopRunning() bool {
 	ev, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, u16(quitEventName))
 	if err != nil {
-		return false // nothing running
+		return true // nothing running
 	}
 	_ = windows.SetEvent(ev)
 	_ = windows.CloseHandle(ev)
@@ -98,7 +101,7 @@ func stopRunning() bool {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	return true
+	return false
 }
 
 func autostartEnabled() bool {
@@ -198,7 +201,11 @@ func main() {
 	if !samePath(exe, target) {
 		_, statErr := os.Stat(target)
 		fresh := os.IsNotExist(statErr)
-		stopRunning()
+		if !stopRunning() {
+			logger.Printf("install failed: the running copy didn't quit")
+			msgBox("The uploader is still running.\n\nClose the uploader from the tray and run this again.", windows.MB_ICONWARNING)
+			return
+		}
 		if err := copyFile(exe, target); err != nil {
 			logger.Printf("install failed: %v", err)
 			msgBox("Couldn't install the uploader:\n"+err.Error(), windows.MB_ICONERROR)
