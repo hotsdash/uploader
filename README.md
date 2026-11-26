@@ -179,3 +179,7 @@ To check a download yourself: compare its SHA-256 with `latest.json`, and verify
 built into every release's program, first in `main.updateKey`).
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.
+
+## Privacy
+
+What the uploader sends, when, and how to turn it off: [PRIVACY.md](PRIVACY.md) (a draft, still to be reviewed).
