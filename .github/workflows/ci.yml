@@ -60,5 +60,10 @@ jobs:
           for f in hots-dash-uploader.exe hots-dash-uploader-linux-amd64 hots-dash-uploader-linux-arm64 hots-dash-uploader-macos; do
             grep -aqF "$UPLOADER_PUBKEY,$UPLOADER_BACKUP_PUBKEY" "dist/$f" || { echo "::error::$f was built without the update keys"; exit 1; }
           done
+          # notifications and the Start menu shortcut go through COM: a PowerShell call coming back would make the
+          # program look like malware to antivirus again (as plain text or as Windows' UTF-16)
+          if grep -aqi powershell dist/hots-dash-uploader.exe || strings -el dist/hots-dash-uploader.exe | grep -qi powershell; then
+            echo "::error::the Windows program mentions PowerShell again"; exit 1
+          fi
       - name: the archives and latest.json come out (unsigned)
         run: UNSIGNED=1 scripts/package.sh && cat dist/latest.json
