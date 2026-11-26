@@ -26,10 +26,11 @@ import (
 // program, checks it, and hands over to it between uploads (see applyUpdate). Off, it says an update is ready and
 // waits for "Update now".
 
-// updateKey: the public key (hex) release builds are signed with, set at build time (-X main.updateKey=…, see
-// build.sh and the release workflow). With it, an update is only run when its signature checks out, so a dashboard (or anyone between it and
-// this computer) can't hand out a program hots-dash didn't sign. A copy built without one (from source, or a self-
-// hosted image built without the signing key) only checks the size and hash the dashboard gives.
+// updateKey: the public keys (hex, comma-separated) an update may be signed with, set at build time
+// (-X main.updateKey=…, see build.sh and the release workflow): the release key, then a backup kept apart from it, so
+// a lost or leaked key can be replaced. With them, an update is only run when its signature checks out, so a dashboard
+// (or anyone between it and this computer) can't hand out a program hots-dash didn't sign. A copy built without one
+// (from source, or a self-hosted image built without the signing key) only checks the size and hash the dashboard gives.
 var updateKey = ""
 
 // applyUpdate starts the downloaded program so it can replace this one (set by the installed copy on Windows, Linux
@@ -300,7 +301,7 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", errors.New("the download didn't match what the dashboard said it would be")
 	}
 	if updateKey != "" {
-		if err := updatesig.Verify(updateKey, v.Version, sum, v.Signature); err != nil {
+		if err := updatesig.VerifyAny(updateKey, v.Version, sum, v.Signature); err != nil {
 			_ = os.Remove(p)
 			a.log.Printf("update refused: %v", err)
 			return "", err

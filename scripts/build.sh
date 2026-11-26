@@ -7,6 +7,9 @@
 # copies decide to update). With UPLOADER_SIGNING_KEY the matching public key is built into the program (it refuses
 # updates that aren't signed with the key) and the programs are signed (scripts/sign.sh), unless SKIP_SIGN=1:
 # the release workflow signs in a later step, after the (planned) Windows code signing.
+#
+# UPLOADER_PUBKEY (hex) gives that public key without the private one (with both, they have to match).
+# UPLOADER_BACKUP_PUBKEY (hex) is a second key built in beside it: updates signed with either are accepted.
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p dist
@@ -15,8 +18,41 @@ case "$VERSION" in
   [0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9][0-9][0-9][0-9]) ;;
   *) echo "VERSION must look like 2026.11.01.2016, not $VERSION" >&2; exit 1 ;;
 esac
+# pubkey NAME VALUE: VALUE as 64 lower-case hex digits, or stop. A mistyped key would make a program that refuses
+# every update.
+pubkey() {
+  k=$(printf '%s' "$2" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+  case "$k" in
+    *[!0-9a-f]*) k= ;;
+  esac
+  if [ "${#k}" != 64 ]; then
+    echo "$1 must be a public key: 64 hex digits (go run ./tools/sign pub)" >&2
+    exit 1
+  fi
+  printf '%s' "$k"
+}
 PUB=
-if [ -n "$UPLOADER_SIGNING_KEY" ]; then PUB=$(CGO_ENABLED=0 go run ./tools/sign pub -key "$UPLOADER_SIGNING_KEY"); fi
+if [ -n "$UPLOADER_PUBKEY" ]; then PUB=$(pubkey UPLOADER_PUBKEY "$UPLOADER_PUBKEY"); fi
+if [ -n "$UPLOADER_SIGNING_KEY" ]; then
+  derived=$(CGO_ENABLED=0 go run ./tools/sign pub -key "$UPLOADER_SIGNING_KEY")
+  if [ -n "$PUB" ] && [ "$PUB" != "$derived" ]; then
+    echo "UPLOADER_PUBKEY isn't the public key of UPLOADER_SIGNING_KEY" >&2
+    exit 1
+  fi
+  PUB=$derived
+fi
+if [ -n "$UPLOADER_BACKUP_PUBKEY" ]; then
+  backup=$(pubkey UPLOADER_BACKUP_PUBKEY "$UPLOADER_BACKUP_PUBKEY")
+  if [ -z "$PUB" ]; then
+    echo "UPLOADER_BACKUP_PUBKEY needs UPLOADER_PUBKEY or UPLOADER_SIGNING_KEY beside it" >&2
+    exit 1
+  fi
+  if [ "$backup" = "$PUB" ]; then
+    echo "UPLOADER_BACKUP_PUBKEY must be a different key from the release key" >&2
+    exit 1
+  fi
+  PUB=$PUB,$backup
+fi
 export CGO_ENABLED=0
 FLAGS="-s -w -X main.version=$VERSION -X main.updateKey=$PUB"
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-H windowsgui $FLAGS" -o dist/hots-dash-uploader.exe .

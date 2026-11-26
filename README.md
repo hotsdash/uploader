@@ -72,15 +72,37 @@ release file here (the uploader follows redirects only to https on the dashboard
 `*.githubusercontent.com`). Whoever serves the bytes, the copy refuses the update unless all of these hold:
 
 - the size and SHA-256 match what the dashboard announced;
-- the Ed25519 signature over the version and that SHA-256 (`updatesig.Message`) verifies against the public key built
-  into the running program (`main.updateKey`);
+- the Ed25519 signature over the version and that SHA-256 (`updatesig.Message`) verifies against one of the public
+  keys built into the running program (`main.updateKey`);
 - the file is a program for this system.
 
 So the dashboard decides what's "latest" (and can hold a release back or roll back), but can't hand out a program that
-wasn't signed with the release key.
+wasn't signed with a trusted key.
+
+### The two keys
+
+A release has two public keys built in, comma-separated in `main.updateKey`:
+
+- the **release key**: `UPLOADER_PUBKEY` (a repository variable), the public half of the `UPLOADER_SIGNING_KEY` secret
+  that signs releases. Without the variable it's worked out from the secret; with it, the two have to match;
+- the **backup key**: `UPLOADER_BACKUP_PUBKEY` (a repository variable, required). Its private half is kept offline,
+  away from GitHub, and only used if the release key is lost or leaked.
+
+If a key is compromised, retire it with a release signed by the other:
+
+1. Make a new key pair (`go run ./tools/sign keygen`, then `pub`) and keep it offline.
+2. If it's the release key: set the `UPLOADER_SIGNING_KEY` secret to the backup private key, `UPLOADER_PUBKEY` to the
+   backup public key and `UPLOADER_BACKUP_PUBKEY` to the new public key. If it's the backup key: only set
+   `UPLOADER_BACKUP_PUBKEY` to the new public key.
+3. Release. Copies that update to it no longer trust the old key; copies that haven't updated yet still do, so get
+   the dashboard to hand it out promptly.
+
+Copies from before there was a backup key (`2026.11.24.…`) trust only the first release key: they can only be moved on
+by a release signed with it, or by downloading the new version again.
 
 A release (`Actions → Release`, run by hand) builds everything with `-trimpath`, signs each program with the key in the
-`UPLOADER_SIGNING_KEY` secret (a base64 seed made by `go run ./tools/sign keygen`; the release fails without it), and
+`UPLOADER_SIGNING_KEY` secret (a base64 seed made by `go run ./tools/sign keygen`; the release fails without it, or
+without `UPLOADER_BACKUP_PUBKEY`), and
 publishes, under the tag `v<version>`:
 
 | asset | what |
@@ -95,7 +117,7 @@ publishes, under the tag `v<version>`:
 ```
 
 To check a download yourself: compare its SHA-256 with `latest.json`, and verify the signature over
-`updatesig.Message(version, sha256)` with the public key (`go run ./tools/sign pub -key KEY` prints it; the key is built
-into every release's program as `main.updateKey`).
+`updatesig.Message(version, sha256)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
+built into every release's program, first in `main.updateKey`).
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.
