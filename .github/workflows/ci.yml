@@ -38,7 +38,17 @@ jobs:
         run: |
           GOOS=windows go vet ./...
           GOOS=darwin go vet ./...
-      - name: build all platforms (unsigned)
-        run: scripts/build.sh
+      - name: build all platforms (unsigned, with made-up public keys)
+        env:
+          # not anyone's keys: only there to see that they end up in the programs
+          UPLOADER_PUBKEY: "1111111111111111111111111111111111111111111111111111111111111111"
+          UPLOADER_BACKUP_PUBKEY: "2222222222222222222222222222222222222222222222222222222222222222"
+          VERSION: "2000.01.01.0000"
+        run: |
+          scripts/build.sh
+          # a release without its keys could never update itself (go version -m doesn't show -X, so look in the file)
+          for f in hots-dash-uploader.exe hots-dash-uploader-linux-amd64 hots-dash-uploader-linux-arm64 hots-dash-uploader-macos; do
+            grep -aqF "$UPLOADER_PUBKEY,$UPLOADER_BACKUP_PUBKEY" "dist/$f" || { echo "::error::$f was built without the update keys"; exit 1; }
+          done
       - name: the archives and latest.json come out (unsigned)
         run: UNSIGNED=1 scripts/package.sh && cat dist/latest.json

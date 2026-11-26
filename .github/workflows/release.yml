@@ -29,6 +29,15 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check the backup public key is there
+        env:
+          UPLOADER_BACKUP_PUBKEY: ${{ vars.UPLOADER_BACKUP_PUBKEY }}
+        run: |
+          if [ -z "$UPLOADER_BACKUP_PUBKEY" ]; then
+            echo "::error::The UPLOADER_BACKUP_PUBKEY repository variable is empty: a release has to trust a backup key too, or a lost or leaked signing key couldn't be replaced."
+            exit 1
+          fi
+
       - name: Check the signing key is there
         env:
           # exactly the one line `go run ./tools/sign keygen` prints (a base64 seed): no name= prefix
@@ -70,7 +79,11 @@ jobs:
 
       - name: Build all platforms
         # -trimpath builds of Windows, linux-amd64, linux-arm64 and the universal macOS program (tools/lipo), with the
-        # public half of the signing key built in. Signing is the next-but-one step.
+        # public half of the signing key and the backup public key built in. Signing is the next-but-one step.
+        # UPLOADER_PUBKEY (when set) has to be the signing key's public half, or the build fails.
+        env:
+          UPLOADER_PUBKEY: ${{ vars.UPLOADER_PUBKEY }}
+          UPLOADER_BACKUP_PUBKEY: ${{ vars.UPLOADER_BACKUP_PUBKEY }}
         run: SKIP_SIGN=1 scripts/build.sh
 
       # ---------------------------------------------------------------------------------------------------------

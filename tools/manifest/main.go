@@ -2,9 +2,10 @@
 //
 //	go run ./tools/manifest -dir dist -version 2026.11.25.1430 -out dist/latest.json
 //
-// For each system: the bare program the updater fetches and verifies (name, size, sha256, and the Ed25519 signature
-// from <program>.sig, over updatesig.Message(version, sha256)), and the file a first install downloads.
-// A program without a signature is an error (-unsigned allows it, for trying a build locally).
+// For each system: the bare program the updater fetches and verifies (name, size, sha256, and the Ed25519 signatures:
+// "signature" from <program>.sig, over updatesig.Message(version, sha256), and "signatureV2" from <program>.sig2, over
+// updatesig.MessageV2(version, sha256, system)), and the file a first install downloads.
+// A program without both signatures is an error (-unsigned allows it, for trying a build locally).
 package main
 
 import (
@@ -20,10 +21,11 @@ import (
 )
 
 type program struct {
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	SHA256    string `json:"sha256"`
-	Signature string `json:"signature"`
+	Name        string `json:"name"`
+	Size        int64  `json:"size"`
+	SHA256      string `json:"sha256"`
+	Signature   string `json:"signature"`
+	SignatureV2 string `json:"signatureV2"`
 }
 
 type file struct {
@@ -53,15 +55,19 @@ func build(dir, version string, unsigned bool) ([]byte, error) {
 		if _, err := os.Stat(filepath.Join(dir, s.download)); err != nil {
 			return nil, err
 		}
-		sig := ""
-		if raw, err := os.ReadFile(filepath.Join(dir, s.program+".sig")); err == nil {
-			sig = strings.TrimSpace(string(raw))
+		read := func(ext string) string {
+			raw, err := os.ReadFile(filepath.Join(dir, s.program+ext))
+			if err != nil {
+				return ""
+			}
+			return strings.TrimSpace(string(raw))
 		}
-		if sig == "" && !unsigned {
+		sig, sig2 := read(".sig"), read(".sig2")
+		if (sig == "" || sig2 == "") && !unsigned {
 			return nil, fmt.Errorf("%s isn't signed", s.program)
 		}
 		sum := sha256.Sum256(data)
-		f, _ := json.Marshal(file{program{s.program, int64(len(data)), hex.EncodeToString(sum[:]), sig}, s.download})
+		f, _ := json.Marshal(file{program{s.program, int64(len(data)), hex.EncodeToString(sum[:]), sig, sig2}, s.download})
 		if i > 0 {
 			b.WriteByte(',')
 		}

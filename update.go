@@ -26,10 +26,11 @@ import (
 // program, checks it, and hands over to it between uploads (see applyUpdate). Off, it says an update is ready and
 // waits for "Update now".
 
-// updateKey: the public key (hex) release builds are signed with, set at build time (-X main.updateKey=…, see
-// build.sh and the release workflow). With it, an update is only run when its signature checks out, so a dashboard (or anyone between it and
-// this computer) can't hand out a program hots-dash didn't sign. A copy built without one (from source, or a self-
-// hosted image built without the signing key) only checks the size and hash the dashboard gives.
+// updateKey: the public keys (hex, comma-separated) an update may be signed with, set at build time
+// (-X main.updateKey=…, see build.sh and the release workflow): the release key, then a backup kept apart from it, so
+// a lost or leaked key can be replaced. With them, an update is only run when its signature checks out, so a dashboard
+// (or anyone between it and this computer) can't hand out a program hots-dash didn't sign. A copy with a version but
+// no key never updates itself; only a build from source ("dev") goes by the size and hash alone.
 var updateKey = ""
 
 // applyUpdate starts the downloaded program so it can replace this one (set by the installed copy on Windows, Linux
@@ -59,8 +60,9 @@ type updater struct {
 	checked   time.Time
 	busy      bool
 	err       string
-	announced string // the version we've already told about
-	moveTo    string // another site the dashboard says it has moved to, waiting for the person to confirm
+	announced string               // the version we've already told about
+	moveTo    string               // another site the dashboard says it has moved to, waiting for the person to confirm
+	probed    map[string]time.Time // when each address it said it moved to was last tried
 }
 
 // UpdateState is what the settings page shows.
@@ -89,13 +91,16 @@ type latestInfo struct {
 	URL string `json:"url,omitempty"`
 	// Signature: base64 Ed25519 over updatesig.Message(Version, sha256 of the program)
 	Signature string `json:"signature,omitempty"`
+	// SignatureV2: the same over updatesig.MessageV2, which names the platform too. Missing from older releases and
+	// dashboards.
+	SignatureV2 string `json:"signatureV2,omitempty"`
 }
 
 // releaseURLPrefix: the only addresses a dashboard may point the update download at (a variable only so tests can
 // aim it at a local server).
 var releaseURLPrefix = "https://github.com/hotsdash/uploader/releases/download/"
 
-// updateURL: where to fetch the update from: the dashboard's url when it's a release file of this project, else
+// updateURL: where to fetch the update from first: the dashboard's url when it's a release file of this project, else
 // the dashboard's own download endpoint.
 func updateURL(v *latestInfo, server string) string {
 	if v != nil && strings.HasPrefix(v.URL, releaseURLPrefix) && len(v.URL) > len(releaseURLPrefix) {
@@ -103,10 +108,20 @@ func updateURL(v *latestInfo, server string) string {
 			return v.URL
 		}
 	}
+	return dashboardUpdateURL(server)
+}
+
+// dashboardUpdateURL: the dashboard's own download endpoint.
+func dashboardUpdateURL(server string) string {
 	return server + "/api/uploader/update" + platformQuery()
 }
 
 var errInsecureUpdate = errors.New("this dashboard's address is plain http, so the uploader won't update itself from it: download the new version from the dashboard")
+
+var errNoUpdateKey = errors.New("this copy has no update key: download the new version from the dashboard")
+
+// unkeyed: a release or other versioned build with no key to check an update's signature against.
+func unkeyed() bool { return version != "dev" && updateKey == "" }
 
 // newer: is latest a newer build than have? A build from source ("dev") never updates itself.
 func newer(have, latest string) bool {
@@ -117,7 +132,7 @@ func (a *Agent) UpdateState() UpdateState {
 	a.upd.mu.Lock()
 	defer a.upd.mu.Unlock()
 	secure := secureServer(a.Config().Server)
-	s := UpdateState{Version: version, Latest: a.upd.latest, Available: newer(version, a.upd.latest), CanApply: applyUpdate != nil && secure,
+	s := UpdateState{Version: version, Latest: a.upd.latest, Available: newer(version, a.upd.latest), CanApply: applyUpdate != nil && secure && !unkeyed(),
 		Auto: !a.Config().NoAutoUpdate, Busy: a.upd.busy, Error: a.upd.err, MoveTo: a.upd.moveTo, Insecure: !secure}
 	if !a.upd.checked.IsZero() {
 		s.Checked = a.upd.checked.Format(time.RFC3339)
@@ -141,6 +156,7 @@ func (a *Agent) latest() (*latestInfo, error) {
 // Only the step from http to https on the same address switches by itself (once it answers there). Anything else,
 // even another port or path on the same machine (a reverse proxy may host other apps beside it), only asks: whoever answers there would get the sign-in, the replays and future updates, so the
 // person confirms it in Settings (AcceptMove). The old address keeps working until then.
+// Only a public https name is ever tried (publicHost), and each address no more than once a day.
 func (a *Agent) followMove(server string) {
 	server = strings.TrimRight(strings.TrimSpace(server), "/")
 	cfg := a.Config()
@@ -148,20 +164,20 @@ func (a *Agent) followMove(server string) {
 	if server == "" || strings.EqualFold(server, cur) || !strings.HasPrefix(server, "https://") || !webLink(server) {
 		return
 	}
-	res, err := a.client.Get(server + "/api/uploader/version")
-	if err != nil {
+	if u, err := url.Parse(server); err != nil || !publicHost(u.Hostname()) {
+		a.log.Printf("server says it moved to %s, which isn't a public address: ignored", server)
 		return
 	}
-	res.Body.Close()
-	if res.StatusCode != 200 {
+	upgrade := secureUpgrade(cur, server)
+	if !upgrade && strings.EqualFold(server, cfg.MoveDismissed) && time.Since(time.Unix(cfg.MoveDismissedAt, 0)) < moveSnooze {
+		return // they said not now to this one, lately
+	}
+	if !a.mayProbe(server) || !a.answersAt(server) {
 		return
 	}
-	if secureUpgrade(cur, server) {
+	if upgrade {
 		a.moveTo(server)
 		return
-	}
-	if strings.EqualFold(server, cfg.MoveDismissed) && time.Since(time.Unix(cfg.MoveDismissedAt, 0)) < moveSnooze {
-		return // they said not now to this one, lately
 	}
 	a.upd.mu.Lock()
 	told := a.upd.moveTo == server
@@ -175,6 +191,55 @@ func (a *Agent) followMove(server string) {
 	if a.Notify != nil {
 		a.Notify("hots-dash: has your dashboard moved?", "It says it's now at "+server+". Open Settings to switch, if you expected this.", a.SettingsURL)
 	}
+}
+
+// publicHost: a DNS name that could be on the internet. Not an IP address (in any spelling), not this computer, not a
+// name only the local network knows (*.local, or one without a dot).
+func publicHost(host string) bool {
+	h := strings.TrimSuffix(strings.ToLower(host), ".")
+	dot := strings.LastIndexByte(h, '.')
+	if dot < 0 || strings.ContainsAny(h, ":%") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".localhost") {
+		return false
+	}
+	// no top-level domain starts with a digit, but the end of an address does (10.0.0.1, 127.1, 127.0.0.0x1)
+	last := h[dot+1:]
+	return last != "" && (last[0] < '0' || last[0] > '9')
+}
+
+// moveProbeEvery: how often one address the dashboard says it has moved to is tried, whether or not it answered.
+const moveProbeEvery = 24 * time.Hour
+
+// mayProbe reports whether server is due to be tried, and counts this as the try.
+func (a *Agent) mayProbe(server string) bool {
+	key := strings.ToLower(server)
+	a.upd.mu.Lock()
+	defer a.upd.mu.Unlock()
+	if t, ok := a.upd.probed[key]; ok && time.Since(t) < moveProbeEvery {
+		return false
+	}
+	if a.upd.probed == nil {
+		a.upd.probed = map[string]time.Time{}
+	}
+	a.upd.probed[key] = time.Now()
+	return true
+}
+
+// answersAt: is there a dashboard answering at server? A redirect is only followed on that same host, over https, so
+// it can't send the request anywhere publicHost wouldn't allow.
+func (a *Agent) answersAt(server string) bool {
+	c := *a.client
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || req.URL.Scheme != "https" || !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+			return errors.New("redirected elsewhere")
+		}
+		return nil
+	}
+	res, err := c.Get(server + "/api/uploader/version")
+	if err != nil {
+		return false
+	}
+	res.Body.Close()
+	return res.StatusCode == 200
 }
 
 func (a *Agent) moveTo(server string) {
@@ -254,28 +319,26 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 	if !secureServer(a.Config().Server) {
 		return "", errInsecureUpdate
 	}
+	if unkeyed() {
+		return "", errNoUpdateKey
+	}
 	d := filepath.Join(a.dir, "update")
 	_ = os.RemoveAll(d)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return "", err
 	}
-	req, err := http.NewRequest("GET", updateURL(v, a.Config().Server), nil)
-	if err != nil {
-		return "", err
+	server := a.Config().Server
+	from, own := updateURL(v, server), dashboardUpdateURL(server)
+	res, err := a.fetchUpdate(from)
+	if err != nil && from != own {
+		// the release file may be out of reach (a repository gone private answers 404): the dashboard has it too
+		a.log.Printf("update: couldn't get the release file (%v): asking the dashboard", err)
+		res, err = a.fetchUpdate(own)
 	}
-	req.Header.Set("User-Agent", userAgent())
-	// the dashboard may answer with a redirect to the release file on GitHub: followed, but only to https on the
-	// dashboard's own host or GitHub's. The size, hash and signature are checked below whoever served the bytes.
-	c := *a.client
-	c.CheckRedirect = updateRedirect(req.URL.Host)
-	res, err := c.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		return "", fmt.Errorf("download: %d", res.StatusCode)
-	}
 	p := filepath.Join(d, programName())
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 	if err != nil {
@@ -300,7 +363,7 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", errors.New("the download didn't match what the dashboard said it would be")
 	}
 	if updateKey != "" {
-		if err := updatesig.Verify(updateKey, v.Version, sum, v.Signature); err != nil {
+		if err := verifySignature(v, sum); err != nil {
 			_ = os.Remove(p)
 			a.log.Printf("update refused: %v", err)
 			return "", err
@@ -314,6 +377,38 @@ func (a *Agent) download(v *latestInfo) (string, error) {
 		return "", err
 	}
 	return p, nil
+}
+
+// fetchUpdate asks for the program at from; anything but a 200 is an error. The dashboard may answer with a redirect to
+// the release file on GitHub: followed, but only to https on the dashboard's own host or GitHub's. The size, hash and
+// signature are checked by download, whoever served the bytes.
+func (a *Agent) fetchUpdate(from string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", from, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent())
+	c := *a.client
+	c.CheckRedirect = updateRedirect(req.URL.Host)
+	res, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode != 200 {
+		res.Body.Close()
+		return nil, fmt.Errorf("download: %d", res.StatusCode)
+	}
+	return res, nil
+}
+
+// verifySignature checks the program's hash was signed for this version by a trusted key: for this platform when
+// there's a v2 signature (and then that one has to be good), else by the v1 signature.
+func verifySignature(v *latestInfo, sum string) error {
+	if v.SignatureV2 != "" {
+		return updatesig.VerifyAnyV2(updateKey, v.Version, sum, updatesig.Platform(runtime.GOOS, runtime.GOARCH), v.SignatureV2)
+	}
+	// LATER: require SignatureV2 once installed copies have moved on (and every dashboard passes it on).
+	return updatesig.VerifyAny(updateKey, v.Version, sum, v.Signature)
 }
 
 // updateRedirect: where the update download may be redirected to (at most 5 times): another https address on the
@@ -434,7 +529,7 @@ func (a *Agent) checkUpdate() {
 	if err != nil || !newer(version, v.Version) {
 		return
 	}
-	if !a.Config().NoAutoUpdate && applyUpdate != nil && secureServer(a.Config().Server) {
+	if !a.Config().NoAutoUpdate && applyUpdate != nil && secureServer(a.Config().Server) && !unkeyed() {
 		_ = a.UpdateNow()
 		return
 	}
@@ -448,7 +543,11 @@ func (a *Agent) checkUpdate() {
 			a.OnUpdate(v.Version)
 		}
 		if a.Notify != nil {
-			a.Notify("hots-dash uploader: update ready", "Version "+v.Version+" is ready. Open Settings (or the tray menu) and choose Update now.", "")
+			how := "Open Settings (or the tray menu) and choose Update now."
+			if unkeyed() {
+				how = "Download it from the dashboard."
+			}
+			a.Notify("hots-dash uploader: update ready", "Version "+v.Version+" is ready. "+how, "")
 		}
 	}
 }
