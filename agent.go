@@ -357,6 +357,9 @@ func (a *Agent) callAnon(path string, in, out any) error {
 	return a.do("POST", path, bytes.NewReader(b), "application/json", out, false)
 }
 
+// maxResponseBytes: far more than any of the dashboard's answers; a bigger one is cut off and fails to decode.
+const maxResponseBytes = 8 << 20
+
 // apiRedirect: where an API call, which carries the token, may be redirected (at most 5 times): the same address,
 // or from http to https on it. Go's own rule keeps the token for the same machine name even over plain http.
 func apiRedirect(req *http.Request, via []*http.Request) error {
@@ -421,7 +424,7 @@ func (a *Agent) do(method, path string, body io.Reader, contentType string, out 
 	if out == nil {
 		return nil
 	}
-	return json.NewDecoder(res.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(res.Body, maxResponseBytes)).Decode(out)
 }
 
 func (a *Agent) postJSON(path string, in, out any) error {
