@@ -23,7 +23,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hotsdash/uploader/updatesig"
+	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
 func main() {
