@@ -75,3 +75,19 @@ func TestFirstRunStartsSignInOnceWithTheCodeInTheAddress(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestSignInRefusesAnApprovalPageOnAnotherSite(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(linkStart{DeviceCode: "d", UserCode: "ABCD-EFGH", VerifyURL: `\\evil.example\share\x.exe`, Interval: 2, ExpiresIn: 60})
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	a := NewAgent(Config{Server: srv.URL, Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
+	_, err := a.StartSignIn()
+	if err == nil || !strings.Contains(err.Error(), "another site") {
+		t.Fatalf("want a refusal, got %v", err)
+	}
+	if a.SignInState().Pending {
+		t.Fatal("nothing should be waiting for approval")
+	}
+}

@@ -1,4 +1,5 @@
-package main
+// Package links decides which addresses may be opened, and opens them.
+package links
 
 import (
 	"net/url"
@@ -9,12 +10,12 @@ import (
 // Opening things: Windows' "open" (ShellExecute) runs whatever it's given, so a program path, a network share
 // (\\host\share\x.exe) or another app's link (ms-msdt:, search-ms:) would start a program. Addresses can come from
 // the dashboard (the sign-in page), so only real web addresses are ever opened; the log file is opened by
-// openFile with a path the uploader builds itself.
+// OpenFile with a path the uploader builds itself.
 
-// webLink: u is a plain http(s) address with a host and no user name or password in it. Only printable ASCII
+// WebLink: u is a plain http(s) address with a host and no user name or password in it. Only printable ASCII
 // without quotes or shell-ish characters: Windows hands the address to the browser on a command line ("%1"), so a
 // quote in it could end that argument and add browser options of the dashboard's choosing.
-func webLink(u string) bool {
+func WebLink(u string) bool {
 	if u == "" {
 		return false
 	}
@@ -30,10 +31,10 @@ func webLink(u string) bool {
 	return p.Scheme == "https" || p.Scheme == "http"
 }
 
-// onSite: u is a web address on the dashboard's own site (same scheme, host and port, under its path: a reverse proxy
+// OnSite: u is a web address on the dashboard's own site (same scheme, host and port, under its path: a reverse proxy
 // may host other apps beside it).
-func onSite(u, server string) bool {
-	if !webLink(u) || !webLink(server) {
+func OnSite(u, server string) bool {
+	if !WebLink(u) || !WebLink(server) {
 		return false
 	}
 	a, _ := url.Parse(u)
@@ -50,16 +51,16 @@ func onSite(u, server string) bool {
 	return a.Scheme == b.Scheme && strings.EqualFold(a.Host, b.Host) && (p == base || strings.HasPrefix(p, base+"/"))
 }
 
-// openURL opens a web address in the browser (a variable so tests can swap in a recorder: main_test.go TestMain
+// OpenURL opens a web address in the browser (a variable so tests can swap in a recorder: each package's TestMain
 // does, before any test runs, so no test can open a browser).
-var openURL = openURLReal
+var OpenURL = openURLReal
 
-// openFile opens a file the uploader made itself (the log), never a path from elsewhere. A variable for the same reason.
-var openFile = openFileReal
+// OpenFile opens a file the uploader made itself (the log), never a path from elsewhere. A variable for the same reason.
+var OpenFile = openFileReal
 
 // openURLReal opens a web address in the browser. Anything else is refused.
 func openURLReal(u string) bool {
-	if !webLink(u) {
+	if !WebLink(u) {
 		return false
 	}
 	shellOpen(u)

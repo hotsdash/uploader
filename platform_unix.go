@@ -353,18 +353,7 @@ func removeService() {
 func autostartState() (supported, on bool) { return true, autostartEnabled() }
 func setAutostartState(on bool) error      { return setAutostart(on) }
 
-// ---------- opening things, notifications, folder picker ----------
-
-func shellOpen(u string) {
-	cmd := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		cmd = "open"
-	}
-	c := exec.Command(cmd, u)
-	if c.Start() == nil {
-		go func() { _ = c.Wait() }()
-	}
-}
+// ---------- notifications, folder picker ----------
 
 // notify shows a desktop notification. Its text comes partly from the dashboard, so it's only ever an argument
 // (notify-send, after --) or an environment variable (macOS), never part of a command or script. Clicking it does

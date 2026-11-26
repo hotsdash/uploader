@@ -14,6 +14,8 @@ import (
 	"fyne.io/systray"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/hotsdash/uploader/internal/links"
 )
 
 //go:embed icon.ico
@@ -128,10 +130,6 @@ func setAutostart(on bool) error {
 	return err
 }
 
-func shellOpen(u string) {
-	_ = windows.ShellExecute(0, u16("open"), u16(u), nil, nil, windows.SW_SHOWNORMAL)
-}
-
 func main() {
 	dir := appDir()
 	logger := newLogger(dir, nil)
@@ -175,7 +173,7 @@ func main() {
 	if err == windows.ERROR_ALREADY_EXISTS {
 		// already running: show its settings page instead
 		if b, err := os.ReadFile(filepath.Join(dir, "settings-url.txt")); err == nil && len(b) > 0 {
-			openURL(strings.TrimSpace(string(b)))
+			links.OpenURL(strings.TrimSpace(string(b)))
 			return
 		}
 		msgBox("The uploader is already running: look for the hots-dash icon by the clock.", windows.MB_ICONINFORMATION)
@@ -229,7 +227,7 @@ func main() {
 			logger.Printf("settings page: same address as before the update")
 		case prev.PageOpen:
 			logger.Printf("settings page: new address after the update, opening it")
-			openURL(settings) // the old address is gone, and the page was open: show it at the new one
+			links.OpenURL(settings) // the old address is gone, and the page was open: show it at the new one
 		}
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--installed" {
@@ -239,7 +237,7 @@ func main() {
 		}
 		toast("hots-dash uploader is running", "It's uploading your replays"+who+" and will keep sending new ones. It's in the tray by the clock.", cfg.Server)
 		if settings != "" {
-			openURL(settings) // show what it found, so folders can be added straight away
+			links.OpenURL(settings) // show what it found, so folders can be added straight away
 		}
 	}
 
@@ -304,9 +302,9 @@ func onReady(a *Agent, stop chan struct{}, settings string) {
 	quit := systray.AddMenuItem("Quit", "")
 	systray.SetOnTapped(func() {
 		if settings != "" {
-			openURL(settings)
+			links.OpenURL(settings)
 		} else {
-			openURL(cfg.Server)
+			links.OpenURL(cfg.Server)
 		}
 	})
 
@@ -329,10 +327,10 @@ func onReady(a *Agent, stop chan struct{}, settings string) {
 			select {
 			case <-settingsItem.ClickedCh:
 				if settings != "" {
-					openURL(settings)
+					links.OpenURL(settings)
 				}
 			case <-open.ClickedCh:
-				openURL(cfg.Server)
+				links.OpenURL(cfg.Server)
 			case <-syncNow.ClickedCh:
 				a.SyncSoon()
 			case <-auto.ClickedCh:
@@ -352,7 +350,7 @@ func onReady(a *Agent, stop chan struct{}, settings string) {
 					}
 				}()
 			case <-logs.ClickedCh:
-				openFile(filepath.Join(a.dir, "uploader.log"))
+				links.OpenFile(filepath.Join(a.dir, "uploader.log"))
 			case <-quit.ClickedCh:
 				systray.Quit()
 				return

@@ -1,14 +1,6 @@
-package main
+package links
 
-import (
-	"encoding/json"
-	"io"
-	"log"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestWebLink(t *testing.T) {
 	ok := []string{
@@ -40,12 +32,12 @@ func TestWebLink(t *testing.T) {
 		"https://hots.example.com/\u00e9",
 	}
 	for _, u := range ok {
-		if !webLink(u) {
+		if !WebLink(u) {
 			t.Errorf("webLink(%q) = false, want true", u)
 		}
 	}
 	for _, u := range bad {
-		if webLink(u) {
+		if WebLink(u) {
 			t.Errorf("webLink(%q) = true, want false", u)
 		}
 	}
@@ -80,7 +72,7 @@ func TestOnSite(t *testing.T) {
 		"https://hots.example.com/hots/":                 true,
 	}
 	for u, want := range cases {
-		if got := onSite(u, server); got != want {
+		if got := OnSite(u, server); got != want {
 			t.Errorf("onSite(%q) = %v, want %v", u, got, want)
 		}
 	}
@@ -95,25 +87,9 @@ func TestOnSiteWithADashboardAtTheRoot(t *testing.T) {
 			"https://hots.example.com/a/%2e%2e/b":   false,
 			"https://evil.example/link":             false,
 		} {
-			if got := onSite(u, server); got != want {
+			if got := OnSite(u, server); got != want {
 				t.Errorf("onSite(%q, %q) = %v, want %v", u, server, got, want)
 			}
 		}
-	}
-}
-
-func TestSignInRefusesAnApprovalPageOnAnotherSite(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(linkStart{DeviceCode: "d", UserCode: "ABCD-EFGH", VerifyURL: `\\evil.example\share\x.exe`, Interval: 2, ExpiresIn: 60})
-	}))
-	defer srv.Close()
-	dir := t.TempDir()
-	a := NewAgent(Config{Server: srv.URL, Folders: []Folder{{Path: dir}}}, dir, log.New(io.Discard, "", 0))
-	_, err := a.StartSignIn()
-	if err == nil || !strings.Contains(err.Error(), "another site") {
-		t.Fatalf("want a refusal, got %v", err)
-	}
-	if a.SignInState().Pending {
-		t.Fatal("nothing should be waiting for approval")
 	}
 }

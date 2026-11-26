@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hotsdash/uploader/internal/links"
+)
 
 // Windows notifications are toasts, shown through WinRT (toast_windows.go). Their text comes partly from the
 // dashboard (game summaries, player names), so it only ever goes into the toast's XML escaped, as text.
@@ -29,7 +33,7 @@ func toastXML(title, message, open string) string {
 		}
 	}
 	launch := ""
-	if webLink(open) {
+	if links.WebLink(open) {
 		launch = ` activationType="protocol" launch="` + xmlEscape(open) + `"`
 	}
 	return `<toast` + launch + `><visual><binding template="ToastGeneric"><text>` + xmlEscape(title) + `</text>` + lines.String() + `</binding></visual></toast>`

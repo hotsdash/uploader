@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hotsdash/uploader/internal/links"
 	"github.com/hotsdash/uploader/internal/updatesig"
 )
 
@@ -161,7 +162,7 @@ func (a *Agent) followMove(server string) {
 	server = strings.TrimRight(strings.TrimSpace(server), "/")
 	cfg := a.Config()
 	cur := cfg.Server
-	if server == "" || strings.EqualFold(server, cur) || !strings.HasPrefix(server, "https://") || !webLink(server) {
+	if server == "" || strings.EqualFold(server, cur) || !strings.HasPrefix(server, "https://") || !links.WebLink(server) {
 		return
 	}
 	if u, err := url.Parse(server); err != nil || !publicHost(u.Hostname()) {

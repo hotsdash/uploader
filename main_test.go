@@ -4,6 +4,8 @@ import (
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/hotsdash/uploader/internal/links"
 )
 
 // No test may launch a browser or any program, or touch the real user's settings, autostart entries or shortcuts.
@@ -16,8 +18,8 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	openURL = func(u string) bool {
-		if !webLink(u) {
+	links.OpenURL = func(u string) bool {
+		if !links.WebLink(u) {
 			return false
 		}
 		openedMu.Lock()
@@ -25,7 +27,7 @@ func TestMain(m *testing.M) {
 		openedMu.Unlock()
 		return true
 	}
-	openFile = func(string) {}
+	links.OpenFile = func(string) {}
 	home, err := os.MkdirTemp("", "hots-dash-test-home-")
 	if err != nil {
 		panic(err)
@@ -47,10 +49,10 @@ func openedURLs() []string {
 
 func TestTheOpenersAreRecordersInTests(t *testing.T) {
 	before := len(openedURLs())
-	if !openURL("https://hots.example.com/link?code=X") || len(openedURLs()) != before+1 {
+	if !links.OpenURL("https://hots.example.com/link?code=X") || len(openedURLs()) != before+1 {
 		t.Fatal("openURL isn't the recorder: a test could open a real browser")
 	}
-	if openURL("file:///etc/passwd") {
+	if links.OpenURL("file:///etc/passwd") {
 		t.Fatal("non-web address opened")
 	}
 	if h := os.Getenv("HOME"); h == "" || h != os.Getenv("APPDATA") {

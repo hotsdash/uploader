@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/links"
 )
 
 // Signing in, like a TV app: the uploader asks the dashboard for a code, opens the browser on the dashboard's
@@ -69,7 +71,7 @@ func (a *Agent) StartSignIn() (SignInState, error) {
 		return a.SignInState(), errors.New("this dashboard doesn't support signing in from the uploader yet")
 	}
 	// the approval page has to be on the dashboard itself: anything else isn't opened (see links.go)
-	if !onSite(st.VerifyURL, a.Config().Server) {
+	if !links.OnSite(st.VerifyURL, a.Config().Server) {
 		a.log.Printf("sign-in: refused approval page %q (not on %s)", st.VerifyURL, a.Config().Server)
 		return a.SignInState(), errors.New("the dashboard sent a sign-in page on another site, so it wasn't opened")
 	}
@@ -80,7 +82,7 @@ func (a *Agent) StartSignIn() (SignInState, error) {
 	cancel := s.cancel
 	s.mu.Unlock()
 	a.event("Signing in: approve code %s in the browser", st.UserCode)
-	openURL(st.VerifyURL)
+	links.OpenURL(st.VerifyURL)
 	go a.pollSignIn(st, cancel)
 	return a.SignInState(), nil
 }

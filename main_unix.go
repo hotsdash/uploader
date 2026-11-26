@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/links"
 )
 
 func main() {
@@ -172,7 +174,7 @@ func installOrOpen(dir string) {
 	if running(dir) {
 		if u := settingsURL(dir, 5*time.Second); u != "" {
 			fmt.Println("The uploader is running. Settings:", u)
-			openURL(u)
+			links.OpenURL(u)
 			return
 		}
 		fmt.Println("The uploader is running, but its settings page isn't answering. Its log is", filepath.Join(dir, "uploader.log"))
@@ -190,7 +192,7 @@ func start(dir, target string) bool {
 	}
 	if u := settingsURL(dir, 15*time.Second); u != "" {
 		fmt.Println("Settings (opening in your browser):", u)
-		openURL(u)
+		links.OpenURL(u)
 	} else {
 		fmt.Println("Started, but its settings page didn't come up. Its log is", filepath.Join(dir, "uploader.log"))
 	}
@@ -201,7 +203,7 @@ func start(dir, target string) bool {
 func settingsURL(dir string, wait time.Duration) string {
 	for end := time.Now().Add(wait); ; time.Sleep(200 * time.Millisecond) {
 		if b, err := os.ReadFile(filepath.Join(dir, "settings-url.txt")); err == nil {
-			if u := strings.TrimSpace(string(b)); webLink(u) {
+			if u := strings.TrimSpace(string(b)); links.WebLink(u) {
 				return u
 			}
 		}
@@ -269,7 +271,7 @@ func runService(dir string, updated bool) {
 			logger.Printf("settings page: same address as before the update")
 		case prev.PageOpen:
 			logger.Printf("settings page: new address after the update, opening it")
-			openURL(settings)
+			links.OpenURL(settings)
 		}
 	}
 	a.Run(stopOnSignal())

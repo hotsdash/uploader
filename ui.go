@@ -19,6 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hotsdash/uploader/internal/links"
 )
 
 // The settings page: a small web page served only to this computer (127.0.0.1, random port), opened from the
@@ -689,7 +691,7 @@ func (u *ui) signIn(r *http.Request) (any, error) {
 		u.a.SignOut()
 	case "reopen":
 		if st := u.a.SignInState(); st.URL != "" {
-			openURL(st.URL)
+			links.OpenURL(st.URL)
 		}
 	default:
 		return nil, errors.New("unknown action")
@@ -704,11 +706,11 @@ func (u *ui) open(r *http.Request) (any, error) {
 	}
 	switch in.What {
 	case "dashboard":
-		openURL(u.a.Config().Server)
+		links.OpenURL(u.a.Config().Server)
 	case "accounts":
-		openURL(u.a.Config().Server + "/accounts")
+		links.OpenURL(u.a.Config().Server + "/accounts")
 	case "log":
-		openFile(filepath.Join(u.a.dir, "uploader.log"))
+		links.OpenFile(filepath.Join(u.a.dir, "uploader.log"))
 	default:
 		return nil, errors.New("unknown")
 	}
