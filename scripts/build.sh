@@ -6,7 +6,7 @@
 # VERSION defaults to the current UTC date and time (YYYY.MM.DD.HHMM: a bigger one is newer, which is how installed
 # copies decide to update). With UPLOADER_SIGNING_KEY the matching public key is built into the program (it refuses
 # updates that aren't signed with the key) and the programs are signed (scripts/sign.sh), unless SKIP_SIGN=1:
-# the release workflow signs in a later step, after the (planned) Windows code signing.
+# the release workflow builds with the public keys only and signs in a later job, after the (planned) Windows code signing.
 #
 # UPLOADER_PUBKEY (hex) gives that public key without the private one (with both, they have to match).
 # UPLOADER_BACKUP_PUBKEY (hex) is a second key built in beside it: updates signed with either are accepted.

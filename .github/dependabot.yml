@@ -1,0 +1,11 @@
+# Actions are pinned by commit (with the version in a comment): Dependabot moves both on together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly

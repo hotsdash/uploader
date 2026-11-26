@@ -132,6 +132,8 @@ Whoever serves the bytes, the copy refuses the update unless all of these hold:
 So the dashboard decides what's "latest" (and can hold a release back or roll back), but can't hand out a program that
 wasn't signed with a trusted key.
 
+To report a security problem, privately, see [SECURITY.md](SECURITY.md).
+
 A copy with a version but no key built in (e.g. `scripts/build.sh` without `UPLOADER_SIGNING_KEY` or `UPLOADER_PUBKEY`)
 can't check signatures, so it never updates itself: it says a new version is ready, to be downloaded from the
 dashboard. Only a build from source (`dev`) goes without the signature check, and it never updates by itself.
@@ -140,8 +142,8 @@ dashboard. Only a build from source (`dev`) goes without the signature check, an
 
 A release has two public keys built in, comma-separated in `main.updateKey`:
 
-- the **release key**: `UPLOADER_PUBKEY` (a repository variable), the public half of the `UPLOADER_SIGNING_KEY` secret
-  that signs releases. Without the variable it's worked out from the secret; with it, the two have to match;
+- the **release key**: `UPLOADER_PUBKEY` (a repository variable, required), the public half of the
+  `UPLOADER_SIGNING_KEY` secret that signs releases. The release fails if the two don't match;
 - the **backup key**: `UPLOADER_BACKUP_PUBKEY` (a repository variable, required). Its private half is kept offline,
   away from GitHub, and only used if the release key is lost or leaked.
 
@@ -157,10 +159,14 @@ If a key is compromised, retire it with a release signed by the other:
 Copies from before there was a backup key (`2026.11.24.…`) trust only the first release key: they can only be moved on
 by a release signed with it, or by downloading the new version again.
 
-A release (`Actions → Release`, run by hand) builds everything with `-trimpath`, signs each program with the key in the
-`UPLOADER_SIGNING_KEY` secret (a base64 seed made by `go run ./tools/sign keygen`; the release fails without it, or
-without `UPLOADER_BACKUP_PUBKEY`), and
-publishes, under the tag `v<version>`:
+A release (`Actions → Release`, run by hand, from `main`) is three jobs, each with only what it needs:
+
+1. **build** tests, then builds everything with `-trimpath` and the two public keys. No secrets.
+2. **sign** runs in the `release` environment, the only place the `UPLOADER_SIGNING_KEY` secret can be read (a base64
+   seed made by `go run ./tools/sign keygen`). It signs each program and makes the archives and `latest.json`.
+3. **publish**, the only job that can write to the repository, records the build provenance and creates the release.
+
+It fails without the secret or either public key, and publishes, under the tag `v<version>`:
 
 | asset | what |
 |---|---|
@@ -185,5 +191,15 @@ The platform is the program's key in `latest.json`: `windows`, `linux-amd64`, `l
 To check a download yourself: compare its SHA-256 with `latest.json`, and verify a signature over
 `updatesig.Message(version, sha256)` or `updatesig.MessageV2(version, sha256, platform)` with the release public key (`go run ./tools/sign pub -key KEY` prints it; it is
 built into every release's program, first in `main.updateKey`).
+
+Releases made while the repository is public also carry build provenance: GitHub's signed record of which workflow run,
+at which commit, produced each file. To check a downloaded file with the GitHub CLI:
+
+```sh
+gh attestation verify <file> --repo hotsdash/uploader
+```
+
+A release made while the repository was private has none, and the command says so by failing. Installed copies don't
+look at it: they go by the signatures above.
 
 Windows code signing (Authenticode) isn't set up yet; the place for it in `release.yml` is marked.
