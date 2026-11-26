@@ -54,6 +54,10 @@ program are still understood.
 
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
 
+On Linux the game runs in Wine, so the check on who's in a game looks for the lobby file inside the Wine prefix your
+replay folder is in, found when the uploader starts. With no replay folder in a prefix there's no check; `-lobby DIR`
+names the folder yourself (anything but `/tmp/Heroes of the Storm`, which is never used).
+
 ## Build
 
 Go 1.26 or newer; no other tools.

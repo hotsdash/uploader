@@ -175,12 +175,7 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 		}
 		cfg.Replays = ""
 	}
-	if cfg.Lobby == "" {
-		// in Wine the game's %TEMP% is inside its prefix, not this computer's own
-		if cfg.Lobby = wineLobbyDir(cfg.Folders); cfg.Lobby == "" {
-			cfg.Lobby = filepath.Join(os.TempDir(), "Heroes of the Storm")
-		}
-	}
+	cfg.Lobby = lobbyDir(runtime.GOOS, cfg.Lobby, cfg.Folders)
 	tr := newFallbackTransport() // copes with networks that intercept the dashboard (netfix.go)
 	a := &Agent{cfg: cfg, dir: dir, log: logger, client: &http.Client{Timeout: 5 * time.Minute, Transport: tr},
 		files: map[string]*fileState{}, kick: make(chan struct{}, 1), lobbySeen: map[string]time.Time{}}
@@ -1024,6 +1019,9 @@ func (a *Agent) region() *int {
 func (a *Agent) lobbyFiles() map[string]time.Time {
 	out := map[string]time.Time{}
 	root := a.Config().Lobby
+	if root == "" { // no game to watch (lobbyDir)
+		return out
+	}
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
