@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -196,8 +197,13 @@ func (u *ui) guard(h http.Handler) http.Handler {
 	})
 }
 
+// keyOK: the secret, compared in constant time so how long a wrong one takes says nothing about it.
+func (u *ui) keyOK(k string) bool {
+	return subtle.ConstantTimeCompare([]byte(k), []byte(u.key)) == 1
+}
+
 func (u *ui) page(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" || r.URL.Query().Get("k") != u.key {
+	if r.URL.Path != "/" || !u.keyOK(r.URL.Query().Get("k")) {
 		http.Error(w, systemText()["forbidden"], http.StatusForbidden)
 		return
 	}
@@ -208,7 +214,7 @@ func (u *ui) page(w http.ResponseWriter, r *http.Request) {
 
 func (u *ui) api(f func(*http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Key") != u.key {
+		if !u.keyOK(r.Header.Get("X-Key")) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
