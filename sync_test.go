@@ -6,8 +6,10 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -330,5 +332,56 @@ func TestPruneKeepsWhatItCannotJudge(t *testing.T) {
 	mustSync(t, a)
 	if !hasState(a, gone) || !hasState(a, elsewhere) {
 		t.Fatalf("pruned: in a missing folder %v, outside the folders %v", !hasState(a, gone), !hasState(a, elsewhere))
+	}
+}
+
+func TestUploadNameDropsWhatCouldBreakTheHeader(t *testing.T) {
+	if got := uploadName(filepath.Join("d", "a\r\n\t\x00\x7f\"b é.StormReplay")); got != "ab é.StormReplay" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// A file name with line breaks in it can't add headers to its part, for a replay or a rejoin save.
+func TestFileNameCannotAddHeaderLines(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows doesn't allow such names")
+	}
+	var mu sync.Mutex
+	var headers []textproto.MIMEHeader
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			t.Errorf("multipart: %v", err)
+		} else {
+			mu.Lock()
+			for _, files := range r.MultipartForm.File {
+				for _, f := range files {
+					headers = append(headers, f.Header)
+				}
+			}
+			mu.Unlock()
+		}
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	a := NewAgent(Config{Server: srv.URL, Folders: []Folder{{Path: t.TempDir()}}}, t.TempDir(), log.New(io.Discard, "", 0))
+	name := "a\r\nX-Injected: yes\r\nb"
+	replay, save := filepath.Join(t.TempDir(), name+".StormReplay"), filepath.Join(t.TempDir(), name+".StormSave")
+	writeReplay(t, replay, "one")
+	writeReplay(t, save, "two")
+	if _, err := a.uploadBatch([]string{replay}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.sendSave(save); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(headers) != 2 {
+		t.Fatalf("files received: %d", len(headers))
+	}
+	for _, h := range headers {
+		if h.Get("X-Injected") != "" || len(h) != 2 {
+			t.Errorf("headers: %v", h)
+		}
 	}
 }

@@ -538,8 +538,16 @@ func (r uploadResult) accepted() bool {
 	return r.Error == "" && !refusedStatuses[strings.ToLower(r.Status)]
 }
 
-// uploadName: the file name a replay is uploaded under, which its result comes back with.
-func uploadName(p string) string { return strings.ReplaceAll(filepath.Base(p), `"`, "") }
+// uploadName: the file name a replay or rejoin save is sent under (and a replay's result comes back with). It goes
+// in a header, so control characters, quotes and backslashes are dropped.
+func uploadName(p string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == '"' || r == '\\' {
+			return -1
+		}
+		return r
+	}, filepath.Base(p))
+}
 
 // matchResults pairs the dashboard's results with the files that were sent: by file name, and where names are
 // missing or shared by position, but only when there's a result for every file. A file with no result of its own
