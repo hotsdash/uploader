@@ -386,7 +386,7 @@ func (a *Agent) sendSave(p string) (saveResult, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="save"; filename="%s"`, strings.ReplaceAll(filepath.Base(p), `"`, "")))
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="save"; filename="%s"`, uploadName(p)))
 	h.Set("Content-Type", "application/octet-stream")
 	part, _ := w.CreatePart(h)
 	_, _ = part.Write(b)

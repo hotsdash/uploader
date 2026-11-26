@@ -5,6 +5,10 @@ program that sits by the clock (Windows), or runs in the background (Linux, macO
 every replay once, keeps uploading new ones as you play, and tells you who you've met before when a game loads. It
 keeps itself up to date.
 
+A replay only counts as sent once the dashboard has accepted it. One it turns down is tried again after a minute,
+10 minutes, an hour and 6 hours; after the fifth refusal it's left alone (until the file changes), and Recent activity
+says why.
+
 This is the whole program: a single Go module with no cgo, built for Windows, Linux (x86-64 and ARM) and macOS
 (one universal program).
 
@@ -49,6 +53,10 @@ program are still understood.
 | settings (`config.json`), state, log | `%APPDATA%\hots-dash` | `~/.config/hots-dash` | `~/Library/Application Support/hots-dash` |
 
 (See `tray_windows.go` and `platform_unix.go` for the exact paths and the autostart entries.)
+
+On Linux the game runs in Wine, so the check on who's in a game looks for the lobby file inside the Wine prefix your
+replay folder is in, found when the uploader starts. With no replay folder in a prefix there's no check; `-lobby DIR`
+names the folder yourself (anything but `/tmp/Heroes of the Storm`, which is never used).
 
 ## Build
 

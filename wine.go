@@ -74,3 +74,24 @@ func wineLobbyDir(folders []Folder) string {
 	}
 	return ""
 }
+
+// lobbyDir: the folder the game writes the lobby file in. set is the one saved or chosen, if any. On Linux the game
+// only runs in Wine, so without a prefix there's none (""): never this computer's /tmp, which anyone can write to.
+func lobbyDir(goos, set string, folders []Folder) string {
+	own := filepath.Join(os.TempDir(), "Heroes of the Storm")
+	// earlier versions defaulted to /tmp on Linux and saved it with the settings
+	if goos == "linux" && (set == own || set == "/tmp/Heroes of the Storm") {
+		set = ""
+	}
+	if set != "" {
+		return set
+	}
+	// in Wine the game's %TEMP% is inside its prefix, not this computer's own
+	if d := wineLobbyDir(folders); d != "" {
+		return d
+	}
+	if goos == "linux" {
+		return ""
+	}
+	return own
+}
