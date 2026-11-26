@@ -17,6 +17,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -186,6 +187,7 @@ func NewAgent(cfg Config, dir string, logger *log.Logger) *Agent {
 		}
 		a.event("Your network answered for %s instead of the dashboard: going around it via %s%s", host, strings.Join(ips, ", "), how)
 	}
+	a.client.CheckRedirect = apiRedirect
 	a.loadState()
 	return a
 }
@@ -353,6 +355,33 @@ func (a *Agent) call(method, path string, body io.Reader, contentType string, ou
 func (a *Agent) callAnon(path string, in, out any) error {
 	b, _ := json.Marshal(in)
 	return a.do("POST", path, bytes.NewReader(b), "application/json", out, false)
+}
+
+// apiRedirect: where an API call, which carries the token, may be redirected (at most 5 times): the same address,
+// or from http to https on it. Go's own rule keeps the token for the same machine name even over plain http.
+func apiRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) > 5 {
+		return errors.New("too many redirects")
+	}
+	from, to := via[len(via)-1].URL, req.URL
+	port := func(u *url.URL) string {
+		switch {
+		case u.Port() != "":
+			return u.Port()
+		case u.Scheme == "https":
+			return "443"
+		}
+		return "80"
+	}
+	if strings.EqualFold(from.Hostname(), to.Hostname()) {
+		if to.Scheme == from.Scheme && port(to) == port(from) {
+			return nil
+		}
+		if from.Scheme == "http" && to.Scheme == "https" && (port(to) == port(from) || port(from) == "80" && port(to) == "443") {
+			return nil
+		}
+	}
+	return fmt.Errorf("the dashboard redirected to %s://%s, which isn't allowed", to.Scheme, to.Host)
 }
 
 func (a *Agent) do(method, path string, body io.Reader, contentType string, out any, withToken bool) error {
