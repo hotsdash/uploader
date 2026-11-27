@@ -46,7 +46,10 @@ func TestStartUIReusesThePreviousAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	// pretend the old copy has exited: free its port by starting from a closed listener on a known free port
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := listenSafe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	prev := &UIHandoff{Port: port, Key: first.key, At: time.Now()}
